@@ -490,6 +490,33 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   Use same provider as LLM
                 </label>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Embeddings Provider</label>
+                <select
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                  value={!['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.embedBaseUrl) ? 'custom' : config.embedBaseUrl}
+                  onChange={e => {
+                    if (e.target.value === 'custom') {
+                      updateConfig('embedBaseUrl', 'https://')
+                    } else {
+                      updateConfig('embedBaseUrl', e.target.value)
+                    }
+                  }}
+                >
+                  <option value="https://api.openai.com/v1">OpenAI</option>
+                  <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+                  <option value="https://router.requesty.ai/v1">Requesty.ai</option>
+                  <option value="custom">Custom (OpenAI-compatible)</option>
+                </select>
+              </div>
+              {!['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.embedBaseUrl) && (
+                <Input
+                  label="Custom Base URL"
+                  value={config.embedBaseUrl}
+                  onChange={e => updateConfig('embedBaseUrl', e.target.value)}
+                  placeholder="https://your-api.example.com/v1"
+                />
+              )}
               <div className="flex gap-2">
                 <div className="flex-1">
                   <Input

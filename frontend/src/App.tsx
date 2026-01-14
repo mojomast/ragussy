@@ -38,23 +38,24 @@ function App() {
 
   return (
     <BrowserRouter>
-      <Toaster />
-      <Routes>
-        {!isConfigured ? (
-          <>
-            <Route path="/setup" element={<SetupWizard onComplete={() => setIsConfigured(true)} />} />
-            <Route path="*" element={<Navigate to="/setup" replace />} />
-          </>
-        ) : (
-          <Route element={<Layout />}>
-            <Route path="/" element={<Chat />} />
-            <Route path="/documents" element={<Documents />} />
-            <Route path="/vectors" element={<VectorStore />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        )}
-      </Routes>
+      <Toaster>
+        <Routes>
+          {!isConfigured ? (
+            <>
+              <Route path="/setup" element={<SetupWizard onComplete={() => setIsConfigured(true)} />} />
+              <Route path="*" element={<Navigate to="/setup" replace />} />
+            </>
+          ) : (
+            <Route element={<Layout />}>
+              <Route path="/" element={<Chat />} />
+              <Route path="/documents" element={<Documents />} />
+              <Route path="/vectors" element={<VectorStore />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          )}
+        </Routes>
+      </Toaster>
     </BrowserRouter>
   )
 }
