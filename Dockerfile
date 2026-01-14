@@ -5,11 +5,13 @@ WORKDIR /app
 # Install dependencies
 COPY package.json pnpm-lock.yaml* ./
 RUN corepack enable && corepack prepare pnpm@latest --activate
-RUN pnpm install --frozen-lockfile
+RUN if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; else pnpm install; fi
 
 # Copy source and build
 COPY tsconfig.json ./
 COPY src ./src
+COPY frontend ./frontend
+RUN cd frontend && npm install && cd ..
 RUN pnpm build
 
 # Production image

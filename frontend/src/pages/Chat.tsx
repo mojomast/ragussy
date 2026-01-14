@@ -26,7 +26,7 @@ export default function Chat() {
     // Get API key from settings
     fetch('/api/settings')
       .then(res => res.json())
-      .then(data => {
+      .then(() => {
         // We need the actual key, not masked - for demo we'll use a simple approach
         // In production, you'd want a session-based auth system
       })
