@@ -51,7 +51,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api', healthRouter);
-app.use('/api', chatRouter);
+app.use('/api/chat', chatRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/vectors', vectorsRouter);
 app.use('/api/settings', settingsRouter);

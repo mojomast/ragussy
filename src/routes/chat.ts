@@ -48,7 +48,7 @@ function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
 
 router.use(apiKeyAuth);
 
-router.post('/chat', async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const validation = chatRequestSchema.safeParse(req.body);
     if (!validation.success) {
@@ -127,7 +127,7 @@ ${payload.content || 'Content not available'}
   }
 });
 
-router.delete('/chat/:conversationId', (req: Request, res: Response) => {
+router.delete('/:conversationId', (req: Request, res: Response) => {
   const { conversationId } = req.params;
   conversations.delete(conversationId);
   return res.json({ success: true });
