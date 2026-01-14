@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Save, RefreshCw, Eye, EyeOff, Copy, Check } from 'lucide-react'
+import { Save, RefreshCw, Eye, EyeOff, Copy, Check, Bot } from 'lucide-react'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
@@ -28,6 +28,15 @@ interface Settings {
   apiKey: string
   adminToken: string
   customSystemPrompt: string
+  // Discord Bot
+  discordBotEnabled: boolean
+  discordBotToken: string
+  discordClientId: string
+  discordGuildId: string
+  discordBotName: string
+  discordCommandPrefix: string
+  discordEmbedColor: string
+  discordCooldownSeconds: number
 }
 
 export default function SettingsPage() {
@@ -54,7 +63,7 @@ export default function SettingsPage() {
     fetchSettings()
   }, [])
 
-  const updateSetting = (key: keyof Settings, value: string | number) => {
+  const updateSetting = (key: keyof Settings, value: string | number | boolean) => {
     if (settings) {
       setSettings({ ...settings, [key]: value })
     }
@@ -352,6 +361,86 @@ export default function SettingsPage() {
           onChange={e => updateSetting('customSystemPrompt', e.target.value)}
           placeholder="Use {PROJECT_NAME} and {CONTEXT} as placeholders..."
         />
+      </Card>
+
+      {/* Discord Bot */}
+      <Card title="Discord Bot" description="Configure Discord bot integration">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="discordBotEnabled"
+              checked={settings.discordBotEnabled}
+              onChange={e => updateSetting('discordBotEnabled', e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="discordBotEnabled" className="text-sm font-medium text-slate-700">
+              Enable Discord Bot
+            </label>
+          </div>
+
+          {settings.discordBotEnabled && (
+            <>
+              <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
+                <Bot size={16} className="inline mr-2" />
+                <strong>Setup:</strong> Create a Discord app at{' '}
+                <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer" className="underline">
+                  Discord Developer Portal
+                </a>
+                . Enable "Message Content Intent" in Bot settings.
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <Input
+                    label="Bot Token"
+                    type={showApiKeys ? 'text' : 'password'}
+                    value={settings.discordBotToken}
+                    onChange={e => updateSetting('discordBotToken', e.target.value)}
+                  />
+                </div>
+                <Input
+                  label="Client ID"
+                  value={settings.discordClientId}
+                  onChange={e => updateSetting('discordClientId', e.target.value)}
+                />
+                <Input
+                  label="Guild ID (optional, for testing)"
+                  value={settings.discordGuildId}
+                  onChange={e => updateSetting('discordGuildId', e.target.value)}
+                />
+                <Input
+                  label="Bot Name"
+                  value={settings.discordBotName}
+                  onChange={e => updateSetting('discordBotName', e.target.value)}
+                />
+                <Input
+                  label="Command Prefix"
+                  value={settings.discordCommandPrefix}
+                  onChange={e => updateSetting('discordCommandPrefix', e.target.value)}
+                />
+                <Input
+                  label="Embed Color (hex)"
+                  value={settings.discordEmbedColor}
+                  onChange={e => updateSetting('discordEmbedColor', e.target.value)}
+                />
+                <Input
+                  label="Cooldown (seconds)"
+                  type="number"
+                  value={settings.discordCooldownSeconds}
+                  onChange={e => updateSetting('discordCooldownSeconds', parseInt(e.target.value))}
+                />
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-lg text-sm">
+                <strong>After saving:</strong> Run the Discord bot from the <code>discord-bot</code> directory:
+                <code className="block mt-2 p-2 bg-slate-900 text-green-400 rounded">
+                  cd discord-bot && npm install && npm run register && npm run dev
+                </code>
+              </div>
+            </>
+          )}
+        </div>
       </Card>
     </div>
   )

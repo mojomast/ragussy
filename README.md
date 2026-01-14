@@ -13,6 +13,7 @@ A universal RAG (Retrieval-Augmented Generation) chatbot with a full management 
 - 💬 **Chat Interface** - Beautiful chat UI with source citations
 - 📦 **Zip Upload** - Upload entire doc folders as zip files
 - 🔌 **Flexible LLM Support** - OpenAI, OpenRouter, or any compatible API
+- 🤖 **Discord Bot** - Optional Discord integration with slash commands
 - 🐳 **Docker Ready** - Full Docker Compose setup included
 
 ## Quick Start
@@ -163,12 +164,54 @@ GET /api/health/detailed
 # Build and start everything
 docker compose up -d --build
 
+# With Discord bot
+docker compose --profile with-discord up -d --build
+
 # View logs
 docker compose logs -f ragussy
 
 # Stop
 docker compose down
 ```
+
+## Discord Bot
+
+Ragussy includes an optional Discord bot for answering questions directly in Discord.
+
+### Quick Setup
+
+1. Create a Discord app at [Discord Developer Portal](https://discord.com/developers/applications)
+2. Create a bot and enable "Message Content Intent"
+3. Copy the Bot Token and Client ID
+4. Configure in the Setup Wizard or Settings page
+
+### Running the Bot
+
+```bash
+cd discord-bot
+npm install
+npm run setup    # Interactive configuration
+npm run register # Register slash commands
+npm run dev      # Start the bot
+```
+
+### Docker
+
+```bash
+# Start with Discord bot
+docker compose --profile with-discord up -d
+```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `/ask <question>` | Ask a question about the docs |
+| `/status` | Check bot health |
+| `/help` | Show help |
+| `!docs <question>` | Message command (customizable prefix) |
+
+See [discord-bot/README.md](discord-bot/README.md) for full documentation.
 
 ## Project Structure
 
@@ -184,6 +227,12 @@ ragussy/
 │   ├── src/
 │   │   ├── components/    # UI components
 │   │   └── pages/         # Page components
+│   └── ...
+├── discord-bot/           # Discord bot
+│   ├── src/
+│   │   ├── commands/      # Slash commands
+│   │   ├── config/        # Bot configuration
+│   │   └── services/      # RAG API client
 │   └── ...
 ├── docs/                  # Your documentation
 ├── install.sh             # Linux/Mac installer

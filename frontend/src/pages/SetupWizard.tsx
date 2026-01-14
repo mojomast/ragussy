@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle, ArrowRight, ArrowLeft, Key, Database, FileText, Sparkles } from 'lucide-react'
+import { CheckCircle, ArrowRight, ArrowLeft, Key, Database, FileText, Sparkles, Bot } from 'lucide-react'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import Card from '@/components/Card'
@@ -14,6 +14,7 @@ const steps = [
   { id: 'llm', title: 'LLM', icon: Sparkles },
   { id: 'embeddings', title: 'Embeddings', icon: Key },
   { id: 'vector', title: 'Vector DB', icon: Database },
+  { id: 'discord', title: 'Discord', icon: Bot },
 ]
 
 export default function SetupWizard({ onComplete }: SetupWizardProps) {
@@ -32,11 +33,20 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     vectorDim: 1536,
     qdrantUrl: 'http://localhost:6333',
     qdrantCollection: 'docs',
+    // Discord Bot
+    discordBotEnabled: false,
+    discordBotToken: '',
+    discordClientId: '',
+    discordGuildId: '',
+    discordBotName: 'Docs Bot',
+    discordCommandPrefix: '!docs',
+    discordEmbedColor: '0x7c3aed',
+    discordCooldownSeconds: 5,
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [testResults, setTestResults] = useState<Record<string, boolean | null>>({})
 
-  const updateConfig = (key: string, value: string | number) => {
+  const updateConfig = (key: string, value: string | number | boolean) => {
     setConfig(prev => ({ ...prev, [key]: value }))
     setErrors(prev => ({ ...prev, [key]: '' }))
   }
@@ -82,6 +92,9 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       if (!config.llmApiKey) newErrors.llmApiKey = 'Required'
     } else if (currentStep === 2) {
       if (!config.embedApiKey) newErrors.embedApiKey = 'Required'
+    } else if (currentStep === 4 && config.discordBotEnabled) {
+      if (!config.discordBotToken) newErrors.discordBotToken = 'Required'
+      if (!config.discordClientId) newErrors.discordClientId = 'Required'
     }
     
     setErrors(newErrors)
@@ -361,6 +374,71 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   docker run -p 6333:6333 qdrant/qdrant
                 </code>
               </div>
+            </div>
+          )}
+
+          {currentStep === 4 && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="discordBotEnabled"
+                  checked={config.discordBotEnabled}
+                  onChange={e => updateConfig('discordBotEnabled', e.target.checked)}
+                  className="rounded"
+                />
+                <label htmlFor="discordBotEnabled" className="text-sm font-medium text-slate-700">
+                  Enable Discord Bot
+                </label>
+              </div>
+
+              {config.discordBotEnabled ? (
+                <>
+                  <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
+                    <Bot size={16} className="inline mr-2" />
+                    Create a Discord app at{' '}
+                    <a href="https://discord.com/developers/applications" target="_blank" rel="noopener noreferrer" className="underline">
+                      Discord Developer Portal
+                    </a>
+                    . Enable "Message Content Intent" in Bot settings.
+                  </div>
+
+                  <Input
+                    label="Bot Token"
+                    type="password"
+                    value={config.discordBotToken}
+                    onChange={e => updateConfig('discordBotToken', e.target.value)}
+                    error={errors.discordBotToken}
+                  />
+                  <Input
+                    label="Client ID"
+                    value={config.discordClientId}
+                    onChange={e => updateConfig('discordClientId', e.target.value)}
+                    error={errors.discordClientId}
+                  />
+                  <Input
+                    label="Guild ID (optional, for faster testing)"
+                    value={config.discordGuildId}
+                    onChange={e => updateConfig('discordGuildId', e.target.value)}
+                  />
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input
+                      label="Bot Name"
+                      value={config.discordBotName}
+                      onChange={e => updateConfig('discordBotName', e.target.value)}
+                    />
+                    <Input
+                      label="Command Prefix"
+                      value={config.discordCommandPrefix}
+                      onChange={e => updateConfig('discordCommandPrefix', e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="bg-slate-50 p-4 rounded-lg text-sm text-slate-600">
+                  You can configure the Discord bot later in Settings.
+                </div>
+              )}
             </div>
           )}
         </Card>

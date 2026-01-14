@@ -29,6 +29,15 @@ interface Settings {
   apiKey: string;
   adminToken: string;
   customSystemPrompt: string;
+  // Discord Bot
+  discordBotEnabled: boolean;
+  discordBotToken: string;
+  discordClientId: string;
+  discordGuildId: string;
+  discordBotName: string;
+  discordCommandPrefix: string;
+  discordEmbedColor: string;
+  discordCooldownSeconds: number;
 }
 
 async function parseEnvFile(): Promise<Record<string, string>> {
@@ -120,6 +129,18 @@ ADMIN_TOKEN=${env.ADMIN_TOKEN || ''}
 REDIS_URL=${env.REDIS_URL || ''}
 LOG_LEVEL=${env.LOG_LEVEL || 'info'}
 CUSTOM_SYSTEM_PROMPT=${env.CUSTOM_SYSTEM_PROMPT || ''}
+
+# ===================
+# Discord Bot
+# ===================
+DISCORD_BOT_ENABLED=${env.DISCORD_BOT_ENABLED || 'false'}
+DISCORD_BOT_TOKEN=${env.DISCORD_BOT_TOKEN || ''}
+DISCORD_CLIENT_ID=${env.DISCORD_CLIENT_ID || ''}
+DISCORD_GUILD_ID=${env.DISCORD_GUILD_ID || ''}
+DISCORD_BOT_NAME=${env.DISCORD_BOT_NAME || 'Docs Bot'}
+DISCORD_COMMAND_PREFIX=${env.DISCORD_COMMAND_PREFIX || '!docs'}
+DISCORD_EMBED_COLOR=${env.DISCORD_EMBED_COLOR || '0x7c3aed'}
+DISCORD_COOLDOWN_SECONDS=${env.DISCORD_COOLDOWN_SECONDS || '5'}
 `;
 
   await fs.writeFile(ENV_PATH, content);
@@ -172,6 +193,15 @@ router.get('/', async (_req: Request, res: Response) => {
       apiKey: env.API_KEY ? '••••••••' + env.API_KEY.slice(-4) : '',
       adminToken: env.ADMIN_TOKEN ? '••••••••' + env.ADMIN_TOKEN.slice(-4) : '',
       customSystemPrompt: env.CUSTOM_SYSTEM_PROMPT || '',
+      // Discord Bot
+      discordBotEnabled: env.DISCORD_BOT_ENABLED === 'true',
+      discordBotToken: env.DISCORD_BOT_TOKEN ? '••••••••' + env.DISCORD_BOT_TOKEN.slice(-4) : '',
+      discordClientId: env.DISCORD_CLIENT_ID || '',
+      discordGuildId: env.DISCORD_GUILD_ID || '',
+      discordBotName: env.DISCORD_BOT_NAME || 'Docs Bot',
+      discordCommandPrefix: env.DISCORD_COMMAND_PREFIX || '!docs',
+      discordEmbedColor: env.DISCORD_EMBED_COLOR || '0x7c3aed',
+      discordCooldownSeconds: parseInt(env.DISCORD_COOLDOWN_SECONDS || '5'),
     };
     
     return res.json(settings);
@@ -211,6 +241,15 @@ router.put('/', async (req: Request, res: Response) => {
       apiKey: 'API_KEY',
       adminToken: 'ADMIN_TOKEN',
       customSystemPrompt: 'CUSTOM_SYSTEM_PROMPT',
+      // Discord Bot
+      discordBotEnabled: 'DISCORD_BOT_ENABLED',
+      discordBotToken: 'DISCORD_BOT_TOKEN',
+      discordClientId: 'DISCORD_CLIENT_ID',
+      discordGuildId: 'DISCORD_GUILD_ID',
+      discordBotName: 'DISCORD_BOT_NAME',
+      discordCommandPrefix: 'DISCORD_COMMAND_PREFIX',
+      discordEmbedColor: 'DISCORD_EMBED_COLOR',
+      discordCooldownSeconds: 'DISCORD_COOLDOWN_SECONDS',
     };
     
     for (const [field, envKey] of Object.entries(fieldMap)) {

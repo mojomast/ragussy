@@ -83,6 +83,34 @@ services:
     profiles:
       - with-redis
 
+  # =====================
+  # Discord Bot (Optional)
+  # =====================
+  discord-bot:
+    build:
+      context: ./discord-bot
+      dockerfile: Dockerfile
+    container_name: ragussy-discord-bot
+    restart: unless-stopped
+    environment:
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
+      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID:-}
+      - RAG_API_URL=http://ragussy:3001/api
+      - RAG_API_KEY=${API_KEY}
+      - BOT_NAME=${DISCORD_BOT_NAME:-Docs Bot}
+      - BOT_COMMAND_PREFIX=${DISCORD_COMMAND_PREFIX:-!docs}
+      - BOT_EMBED_COLOR=${DISCORD_EMBED_COLOR:-0x7c3aed}
+      - COOLDOWN_SECONDS=${DISCORD_COOLDOWN_SECONDS:-5}
+      - LOG_LEVEL=info
+    depends_on:
+      ragussy:
+        condition: service_healthy
+    networks:
+      - ragussy-internal
+    profiles:
+      - with-discord
+
 networks:
   ragussy-internal:
     driver: bridge
