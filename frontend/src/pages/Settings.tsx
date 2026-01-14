@@ -56,6 +56,25 @@ export default function SettingsPage() {
   const [fetchingEmbedModels, setFetchingEmbedModels] = useState(false)
   const { toast } = useToast()
 
+  // Known embedding models with their dimensions
+  const KNOWN_EMBEDDING_MODELS: Record<string, number> = {
+    'text-embedding-3-small': 1536,
+    'text-embedding-3-large': 3072,
+    'text-embedding-ada-002': 1536,
+    'openai/text-embedding-3-small': 1536,
+    'openai/text-embedding-3-large': 3072,
+    'openai/text-embedding-ada-002': 1536,
+  }
+
+  // Get vector dimension for a model
+  const getVectorDimForModel = (model: string): number => {
+    if (KNOWN_EMBEDDING_MODELS[model]) return KNOWN_EMBEDDING_MODELS[model]
+    if (model.includes('3-large') || model.includes('large-3')) return 3072
+    if (model.includes('3-small') || model.includes('small-3')) return 1536
+    if (model.includes('ada-002') || model.includes('ada')) return 1536
+    return 1536
+  }
+
   const fetchSettings = async () => {
     try {
       const res = await fetch('/api/settings')
@@ -518,27 +537,35 @@ export default function SettingsPage() {
                       className="w-full px-3 py-2 rounded-lg border border-slate-300"
                       value={settings.embedModel}
                       onChange={e => {
-                        updateSetting('embedModel', e.target.value)
-                        // Auto-detect vector dimensions for known models
-                        if (e.target.value.includes('3-large')) {
-                          updateSetting('vectorDim', 3072)
-                        } else if (e.target.value.includes('ada-002') || e.target.value.includes('3-small')) {
-                          updateSetting('vectorDim', 1536)
-                        }
+                        const model = e.target.value
+                        updateSetting('embedModel', model)
+                        updateSetting('vectorDim', getVectorDimForModel(model))
                       }}
                     >
                       {availableEmbedModels.map(model => (
-                        <option key={model} value={model}>{model}</option>
+                        <option key={model} value={model}>
+                          {model} ({getVectorDimForModel(model)} dims)
+                        </option>
                       ))}
                     </select>
                   </div>
                 ) : (
-                  <Input
-                    label="Embedding Model"
-                    value={settings.embedModel}
-                    onChange={e => updateSetting('embedModel', e.target.value)}
-                    placeholder="text-embedding-3-small"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Embedding Model</label>
+                    <select
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      value={settings.embedModel}
+                      onChange={e => {
+                        const model = e.target.value
+                        updateSetting('embedModel', model)
+                        updateSetting('vectorDim', getVectorDimForModel(model))
+                      }}
+                    >
+                      <option value="text-embedding-3-small">text-embedding-3-small (1536 dims)</option>
+                      <option value="text-embedding-3-large">text-embedding-3-large (3072 dims)</option>
+                      <option value="text-embedding-ada-002">text-embedding-ada-002 (1536 dims)</option>
+                    </select>
+                  </div>
                 )}
               </div>
               <Button
@@ -552,11 +579,20 @@ export default function SettingsPage() {
               </Button>
             </div>
           </div>
+          <div className="col-span-2 bg-slate-50 p-3 rounded-lg">
+            <p className="text-sm text-slate-600">
+              <strong>Vector Dimensions:</strong> {settings.vectorDim}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              Auto-detected from embedding model. Change only if using a custom model with different dimensions.
+            </p>
+          </div>
           <Input
-            label="Vector Dimensions"
+            label="Vector Dimensions (advanced)"
             type="number"
             value={settings.vectorDim}
             onChange={e => updateSetting('vectorDim', parseInt(e.target.value))}
+            hint="Only change if your embedding model uses different dimensions"
           />
         </div>
       </Card>

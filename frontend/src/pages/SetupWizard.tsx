@@ -25,8 +25,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [uploading, setUploading] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
   const [customLlmUrl, setCustomLlmUrl] = useState('')
+  const [customEmbedUrl, setCustomEmbedUrl] = useState('')
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [availableEmbedModels, setAvailableEmbedModels] = useState<string[]>([])
   const [fetchingModels, setFetchingModels] = useState(false)
+  const [fetchingEmbedModels, setFetchingEmbedModels] = useState(false)
   const [config, setConfig] = useState({
     projectName: 'My Documentation',
     publicDocsBaseUrl: 'https://docs.example.com',
@@ -52,6 +55,36 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [testResults, setTestResults] = useState<Record<string, boolean | null>>({})
+
+  // Known embedding models with their dimensions
+  const KNOWN_EMBEDDING_MODELS: Record<string, number> = {
+    'text-embedding-3-small': 1536,
+    'text-embedding-3-large': 3072,
+    'text-embedding-ada-002': 1536,
+    // OpenRouter embedding models
+    'openai/text-embedding-3-small': 1536,
+    'openai/text-embedding-3-large': 3072,
+    'openai/text-embedding-ada-002': 1536,
+    // Common other embedding models
+    'voyage-large-2': 1536,
+    'voyage-code-2': 1536,
+    'voyage-2': 1024,
+    'voyage-lite-02-instruct': 1024,
+  }
+
+  // Get vector dimension for a model
+  const getVectorDimForModel = (model: string): number => {
+    // Check known models
+    if (KNOWN_EMBEDDING_MODELS[model]) {
+      return KNOWN_EMBEDDING_MODELS[model]
+    }
+    // Check if model name contains hints
+    if (model.includes('3-large') || model.includes('large-3')) return 3072
+    if (model.includes('3-small') || model.includes('small-3')) return 1536
+    if (model.includes('ada-002') || model.includes('ada')) return 1536
+    // Default
+    return 1536
+  }
 
   // ZIP file upload handler
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -138,15 +171,58 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       const data = await res.json()
 
       if (data.success && data.models) {
-        setAvailableModels(data.models)
-        if (data.models.length > 0) {
-          updateConfig('llmModel', data.models[0])
+        // Filter out embedding models for LLM selection
+        const llmModels = data.models.filter((m: string) => 
+          !m.includes('embedding') && !m.includes('embed')
+        )
+        setAvailableModels(llmModels.length > 0 ? llmModels : data.models)
+        if (llmModels.length > 0) {
+          updateConfig('llmModel', llmModels[0])
         }
       }
     } catch (error) {
       // Silently fail
     } finally {
       setFetchingModels(false)
+    }
+  }
+
+  const fetchEmbeddingModels = async () => {
+    if (!config.embedApiKey) {
+      return
+    }
+
+    setFetchingEmbedModels(true)
+    try {
+      const baseUrl = !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.embedBaseUrl) 
+        ? customEmbedUrl || config.embedBaseUrl 
+        : config.embedBaseUrl
+      const res = await fetch('/api/settings/fetch-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          baseUrl,
+          apiKey: config.embedApiKey 
+        }),
+      })
+      const data = await res.json()
+
+      if (data.success && data.models) {
+        // Filter for embedding models only
+        const embedModels = data.models.filter((m: string) => 
+          m.includes('embedding') || m.includes('embed') || m.includes('voyage')
+        )
+        if (embedModels.length > 0) {
+          setAvailableEmbedModels(embedModels)
+        } else {
+          // If no embedding models found, show all (user might be using custom provider)
+          setAvailableEmbedModels(data.models)
+        }
+      }
+    } catch (error) {
+      // Silently fail
+    } finally {
+      setFetchingEmbedModels(false)
     }
   }
 
@@ -482,6 +558,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                     if (e.target.checked) {
                       updateConfig('embedBaseUrl', config.llmBaseUrl)
                       updateConfig('embedApiKey', config.llmApiKey)
+                      setAvailableEmbedModels([])
                     }
                   }}
                   className="rounded"
@@ -497,10 +574,12 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   value={!['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.embedBaseUrl) ? 'custom' : config.embedBaseUrl}
                   onChange={e => {
                     if (e.target.value === 'custom') {
-                      updateConfig('embedBaseUrl', 'https://')
+                      updateConfig('embedBaseUrl', customEmbedUrl || 'https://')
                     } else {
                       updateConfig('embedBaseUrl', e.target.value)
+                      setCustomEmbedUrl('')
                     }
+                    setAvailableEmbedModels([])
                   }}
                 >
                   <option value="https://api.openai.com/v1">OpenAI</option>
@@ -512,8 +591,11 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               {!['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.embedBaseUrl) && (
                 <Input
                   label="Custom Base URL"
-                  value={config.embedBaseUrl}
-                  onChange={e => updateConfig('embedBaseUrl', e.target.value)}
+                  value={customEmbedUrl || config.embedBaseUrl}
+                  onChange={e => {
+                    setCustomEmbedUrl(e.target.value)
+                    updateConfig('embedBaseUrl', e.target.value)
+                  }}
                   placeholder="https://your-api.example.com/v1"
                 />
               )}
@@ -543,20 +625,57 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   {testResults.embed ? '✓ API key is valid' : '✗ API key is invalid'}
                 </p>
               )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Embedding Model</label>
-                <select
-                  className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                  value={config.embedModel}
-                  onChange={e => {
-                    updateConfig('embedModel', e.target.value)
-                    updateConfig('vectorDim', e.target.value === 'text-embedding-3-large' ? 3072 : 1536)
-                  }}
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Embedding Model</label>
+                  {availableEmbedModels.length > 0 ? (
+                    <select
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      value={config.embedModel}
+                      onChange={e => {
+                        const model = e.target.value
+                        updateConfig('embedModel', model)
+                        updateConfig('vectorDim', getVectorDimForModel(model))
+                      }}
+                    >
+                      {availableEmbedModels.map(model => (
+                        <option key={model} value={model}>
+                          {model} ({getVectorDimForModel(model)} dims)
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <select
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      value={config.embedModel}
+                      onChange={e => {
+                        const model = e.target.value
+                        updateConfig('embedModel', model)
+                        updateConfig('vectorDim', getVectorDimForModel(model))
+                      }}
+                    >
+                      <option value="text-embedding-3-small">text-embedding-3-small (1536 dims)</option>
+                      <option value="text-embedding-3-large">text-embedding-3-large (3072 dims)</option>
+                      <option value="text-embedding-ada-002">text-embedding-ada-002 (1536 dims)</option>
+                    </select>
+                  )}
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={fetchEmbeddingModels}
+                  loading={fetchingEmbedModels}
+                  disabled={!config.embedApiKey}
                 >
-                  <option value="text-embedding-3-small">text-embedding-3-small (1536 dims)</option>
-                  <option value="text-embedding-3-large">text-embedding-3-large (3072 dims)</option>
-                  <option value="text-embedding-ada-002">text-embedding-ada-002 (1536 dims)</option>
-                </select>
+                  Fetch Models
+                </Button>
+              </div>
+              <div className="bg-slate-50 p-3 rounded-lg">
+                <p className="text-sm text-slate-600">
+                  <strong>Vector Dimensions:</strong> {config.vectorDim}
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  This must match your embedding model's output dimensions. The Qdrant collection will be created with this size.
+                </p>
               </div>
             </div>
           )}
@@ -589,6 +708,18 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 onChange={e => updateConfig('qdrantCollection', e.target.value)}
                 placeholder="docs"
               />
+              <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Collection Configuration:</strong>
+                </p>
+                <ul className="text-sm text-blue-700 mt-2 space-y-1">
+                  <li>• Embedding Model: <code className="bg-blue-100 px-1 rounded">{config.embedModel}</code></li>
+                  <li>• Vector Dimensions: <code className="bg-blue-100 px-1 rounded">{config.vectorDim}</code></li>
+                </ul>
+                <p className="text-xs text-blue-600 mt-2">
+                  The collection will be created with these settings. If you change the embedding model later, you'll need to recreate the collection.
+                </p>
+              </div>
               <div className="bg-slate-50 p-4 rounded-lg">
                 <p className="text-sm text-slate-600">
                   <strong>Need Qdrant?</strong> Run this command:
