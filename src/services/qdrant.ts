@@ -17,49 +17,61 @@ export function getQdrantClient(): QdrantClient {
 export async function ensureCollection(): Promise<void> {
   const qdrant = getQdrantClient();
   const collectionName = env.QDRANT_COLLECTION;
+  
+  // Retry logic for when Qdrant is still starting up
+  const maxRetries = 30;
+  const retryDelay = 2000; // 2 seconds
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const collections = await qdrant.getCollections();
+      const exists = collections.collections.some((c: any) => c.name === collectionName);
 
-  try {
-    const collections = await qdrant.getCollections();
-    const exists = collections.collections.some((c: any) => c.name === collectionName);
+      if (!exists) {
+        logger.info({ collection: collectionName, vectorDim: env.VECTOR_DIM }, 'Creating Qdrant collection');
+        await qdrant.createCollection(collectionName, {
+          vectors: {
+            size: env.VECTOR_DIM,
+            distance: 'Cosine',
+          },
+          optimizers_config: {
+            default_segment_number: 2,
+          },
+          replication_factor: 1,
+        });
 
-    if (!exists) {
-      logger.info({ collection: collectionName, vectorDim: env.VECTOR_DIM }, 'Creating Qdrant collection');
-      await qdrant.createCollection(collectionName, {
-        vectors: {
-          size: env.VECTOR_DIM,
-          distance: 'Cosine',
-        },
-        optimizers_config: {
-          default_segment_number: 2,
-        },
-        replication_factor: 1,
-      });
+        // Create payload indexes for filtering
+        await qdrant.createPayloadIndex(collectionName, {
+          field_name: 'source_file',
+          field_schema: 'keyword',
+        });
+        await qdrant.createPayloadIndex(collectionName, {
+          field_name: 'doc_category',
+          field_schema: 'keyword',
+        });
 
-      // Create payload indexes for filtering
-      await qdrant.createPayloadIndex(collectionName, {
-        field_name: 'source_file',
-        field_schema: 'keyword',
-      });
-      await qdrant.createPayloadIndex(collectionName, {
-        field_name: 'doc_category',
-        field_schema: 'keyword',
-      });
-
-      logger.info({ collection: collectionName }, 'Collection created with indexes');
-    } else {
-      const info = await getCollectionInfo();
-      const existingSize = (info?.config?.params?.vectors as any)?.size;
-      if (existingSize && existingSize !== env.VECTOR_DIM) {
-        throw new Error(
-          `Existing collection '${collectionName}' has vector size ${existingSize}, but VECTOR_DIM is ${env.VECTOR_DIM}. ` +
-          'Either update VECTOR_DIM or run ingest:full to recreate the collection.'
-        );
+        logger.info({ collection: collectionName }, 'Collection created with indexes');
+      } else {
+        const info = await getCollectionInfo();
+        const existingSize = (info?.config?.params?.vectors as any)?.size;
+        if (existingSize && existingSize !== env.VECTOR_DIM) {
+          throw new Error(
+            `Existing collection '${collectionName}' has vector size ${existingSize}, but VECTOR_DIM is ${env.VECTOR_DIM}. ` +
+            'Either update VECTOR_DIM or run ingest:full to recreate the collection.'
+          );
+        }
+        logger.debug({ collection: collectionName }, 'Collection already exists');
       }
-      logger.debug({ collection: collectionName }, 'Collection already exists');
+      return; // Success, exit the retry loop
+    } catch (error) {
+      if (attempt < maxRetries) {
+        logger.warn({ attempt, maxRetries, error: String(error) }, 'Qdrant not ready, retrying...');
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        logger.error({ error, collection: collectionName }, 'Failed to ensure collection after all retries');
+        throw error;
+      }
     }
-  } catch (error) {
-    logger.error({ error, collection: collectionName }, 'Failed to ensure collection');
-    throw error;
   }
 }
 

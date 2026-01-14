@@ -20,20 +20,20 @@ const envSchema = z.object({
   DOCS_EXTENSIONS: z.string().default('.md,.mdx'),
 
   // Qdrant
-  QDRANT_URL: z.string().url(),
+  QDRANT_URL: z.string().url().default('http://localhost:6333'),
   QDRANT_API_KEY: z.string().optional(),
   QDRANT_COLLECTION: z.string().default('docs'),
   VECTOR_DIM: z.string().default('1536').transform(Number),
 
-  // LLM Provider
+  // LLM Provider (optional during setup)
   LLM_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
-  LLM_API_KEY: z.string().min(1),
+  LLM_API_KEY: z.string().default(''),
   LLM_MODEL: z.string().default('gpt-4o-mini'),
   LLM_MAX_TOKENS: z.string().default('4096').transform(Number),
 
-  // Embeddings
+  // Embeddings (optional during setup)
   EMBED_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
-  EMBED_API_KEY: z.string().min(1),
+  EMBED_API_KEY: z.string().default(''),
   EMBED_MODEL: z.string().default('text-embedding-3-small'),
 
   // RAG Configuration
@@ -43,9 +43,9 @@ const envSchema = z.object({
   CHUNK_MAX_TOKENS: z.string().default('700').transform(Number),
   CHUNK_OVERLAP_TOKENS: z.string().default('75').transform(Number),
 
-  // Security
-  API_KEY: z.string().min(16),
-  ADMIN_TOKEN: z.string().min(16),
+  // Security (optional during setup)
+  API_KEY: z.string().default(''),
+  ADMIN_TOKEN: z.string().default(''),
 
   // Optional
   REDIS_URL: z.string().optional(),

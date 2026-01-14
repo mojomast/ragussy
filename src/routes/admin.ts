@@ -6,6 +6,14 @@ const router: Router = Router();
 
 // Admin authentication middleware
 function adminAuth(req: Request, res: Response, next: NextFunction) {
+  // Check if system is configured
+  if (!env.ADMIN_TOKEN) {
+    return res.status(503).json({ 
+      error: 'System not configured',
+      message: 'Please complete the initial setup first'
+    });
+  }
+  
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {

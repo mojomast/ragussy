@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { CheckCircle, ArrowRight, ArrowLeft, Key, Database, FileText, Sparkles, Bot } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { CheckCircle, ArrowRight, ArrowLeft, Key, Database, FileText, Sparkles, Bot, Upload } from 'lucide-react'
+import { useDropzone } from 'react-dropzone'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import Card from '@/components/Card'
@@ -20,6 +21,12 @@ const steps = [
 export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [currentStep, setCurrentStep] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [uploadMode, setUploadMode] = useState<'url' | 'zip'>('url')
+  const [uploading, setUploading] = useState(false)
+  const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
+  const [customLlmUrl, setCustomLlmUrl] = useState('')
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [fetchingModels, setFetchingModels] = useState(false)
   const [config, setConfig] = useState({
     projectName: 'My Documentation',
     publicDocsBaseUrl: 'https://docs.example.com',
@@ -45,6 +52,41 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [testResults, setTestResults] = useState<Record<string, boolean | null>>({})
+
+  // ZIP file upload handler
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return
+
+    setUploading(true)
+    const formData = new FormData()
+    formData.append('file', acceptedFiles[0])
+
+    try {
+      const res = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        setUploadedFiles(data.files || [])
+      } else {
+        setErrors(prev => ({ ...prev, upload: data.error || 'Upload failed' }))
+      }
+    } catch (error) {
+      setErrors(prev => ({ ...prev, upload: 'Upload failed' }))
+    } finally {
+      setUploading(false)
+    }
+  }, [])
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'application/zip': ['.zip'],
+    },
+    maxFiles: 1,
+  })
 
   const updateConfig = (key: string, value: string | number | boolean) => {
     setConfig(prev => ({ ...prev, [key]: value }))
@@ -74,6 +116,37 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       setTestResults(prev => ({ ...prev, qdrant: res.ok }))
     } catch {
       setTestResults(prev => ({ ...prev, qdrant: false }))
+    }
+  }
+
+  const fetchAvailableModels = async () => {
+    if (!config.llmApiKey) {
+      return
+    }
+
+    setFetchingModels(true)
+    try {
+      const baseUrl = config.llmBaseUrl === 'custom' ? customLlmUrl : config.llmBaseUrl
+      const res = await fetch('/api/settings/fetch-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          baseUrl,
+          apiKey: config.llmApiKey 
+        }),
+      })
+      const data = await res.json()
+
+      if (data.success && data.models) {
+        setAvailableModels(data.models)
+        if (data.models.length > 0) {
+          updateConfig('llmModel', data.models[0])
+        }
+      }
+    } catch (error) {
+      // Silently fail
+    } finally {
+      setFetchingModels(false)
     }
   }
 
@@ -139,6 +212,8 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       })
       
       if (res.ok) {
+        // Mark setup as complete
+        await fetch('/api/settings/complete-setup', { method: 'POST' })
         onComplete()
       }
     } catch (error) {
@@ -203,20 +278,94 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 error={errors.projectName}
                 placeholder="My Documentation"
               />
-              <Input
-                label="Public Docs URL"
-                value={config.publicDocsBaseUrl}
-                onChange={e => updateConfig('publicDocsBaseUrl', e.target.value)}
-                placeholder="https://docs.example.com"
-                hint="Where your documentation is hosted (for source links)"
-              />
-              <Input
-                label="Docs Path"
-                value={config.docsPath}
-                onChange={e => updateConfig('docsPath', e.target.value)}
-                placeholder="./docs"
-                hint="Local path to your markdown documentation"
-              />
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Documentation Source</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setUploadMode('url')}
+                    className={`flex-1 px-3 py-2 rounded-lg border transition-colors ${
+                      uploadMode === 'url'
+                        ? 'border-primary-500 bg-primary-50 text-primary-700'
+                        : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                    }`}
+                  >
+                    URL
+                  </button>
+                  <button
+                    onClick={() => setUploadMode('zip')}
+                    className={`flex-1 px-3 py-2 rounded-lg border transition-colors ${
+                      uploadMode === 'zip'
+                        ? 'border-primary-500 bg-primary-50 text-primary-700'
+                        : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                    }`}
+                  >
+                    ZIP Upload
+                  </button>
+                </div>
+              </div>
+              {uploadMode === 'url' ? (
+                <>
+                  <Input
+                    label="Public Docs URL"
+                    value={config.publicDocsBaseUrl}
+                    onChange={e => updateConfig('publicDocsBaseUrl', e.target.value)}
+                    placeholder="https://docs.example.com"
+                    hint="Where your documentation is hosted (for source links)"
+                  />
+                  <Input
+                    label="Docs Path"
+                    value={config.docsPath}
+                    onChange={e => updateConfig('docsPath', e.target.value)}
+                    placeholder="./docs"
+                    hint="Local path to your markdown documentation"
+                  />
+                </>
+              ) : (
+                <div className="space-y-4">
+                  <div
+                    {...getRootProps()}
+                    className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                      isDragActive ? 'border-primary-500 bg-primary-50' : 'border-slate-300 hover:border-slate-400'
+                    }`}
+                  >
+                    <input {...getInputProps()} />
+                    <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                    {uploading ? (
+                      <p className="text-slate-600 text-sm">Uploading...</p>
+                    ) : isDragActive ? (
+                      <p className="text-primary-600 text-sm">Drop ZIP file here...</p>
+                    ) : (
+                      <>
+                        <p className="text-slate-600 text-sm mb-1">Drag & drop your documentation ZIP here, or click to select</p>
+                        <p className="text-xs text-slate-400">ZIP should contain .md or .mdx files</p>
+                      </>
+                    )}
+                  </div>
+                  {errors.upload && (
+                    <p className="text-red-600 text-sm">{errors.upload}</p>
+                  )}
+                  {uploadedFiles.length > 0 && (
+                    <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+                      <p className="text-green-800 font-medium mb-2">✓ Uploaded {uploadedFiles.length} file(s)</p>
+                      <ul className="text-sm text-green-700 max-h-32 overflow-y-auto">
+                        {uploadedFiles.slice(0, 10).map((file, i) => (
+                          <li key={i} className="truncate">• {file}</li>
+                        ))}
+                        {uploadedFiles.length > 10 && (
+                          <li className="text-green-600">...and {uploadedFiles.length - 10} more</li>
+                        )}
+                      </ul>
+                    </div>
+                  )}
+                  <Input
+                    label="Docs Path (where files will be stored)"
+                    value={config.docsPath}
+                    onChange={e => updateConfig('docsPath', e.target.value)}
+                    placeholder="./docs"
+                    hint="Local path where documentation will be stored"
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -226,20 +375,40 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 <label className="block text-sm font-medium text-slate-700 mb-2">LLM Provider</label>
                 <select
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                  value={config.llmBaseUrl}
+                  value={config.llmBaseUrl === 'custom' || !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.llmBaseUrl) ? 'custom' : config.llmBaseUrl}
                   onChange={e => {
-                    updateConfig('llmBaseUrl', e.target.value)
-                    if (e.target.value.includes('openrouter')) {
-                      updateConfig('llmModel', 'openai/gpt-4o-mini')
+                    if (e.target.value === 'custom') {
+                      updateConfig('llmBaseUrl', customLlmUrl || 'https://')
                     } else {
-                      updateConfig('llmModel', 'gpt-4o-mini')
+                      updateConfig('llmBaseUrl', e.target.value)
+                      setCustomLlmUrl('')
+                      if (e.target.value.includes('openrouter')) {
+                        updateConfig('llmModel', 'openai/gpt-4o-mini')
+                      } else if (e.target.value.includes('requesty')) {
+                        updateConfig('llmModel', 'gpt-4o-mini')
+                      } else {
+                        updateConfig('llmModel', 'gpt-4o-mini')
+                      }
                     }
                   }}
                 >
                   <option value="https://api.openai.com/v1">OpenAI</option>
                   <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+                  <option value="https://router.requesty.ai/v1">Requesty.ai</option>
+                  <option value="custom">Custom (OpenAI-compatible)</option>
                 </select>
               </div>
+              {(config.llmBaseUrl === 'custom' || !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.llmBaseUrl)) && (
+                <Input
+                  label="Custom Base URL"
+                  value={customLlmUrl || config.llmBaseUrl}
+                  onChange={e => {
+                    setCustomLlmUrl(e.target.value)
+                    updateConfig('llmBaseUrl', e.target.value)
+                  }}
+                  placeholder="https://your-api.example.com/v1"
+                />
+              )}
               <div className="flex gap-2">
                 <div className="flex-1">
                   <Input
@@ -266,12 +435,39 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   {testResults.llm ? '✓ API key is valid' : '✗ API key is invalid'}
                 </p>
               )}
-              <Input
-                label="Model"
-                value={config.llmModel}
-                onChange={e => updateConfig('llmModel', e.target.value)}
-                placeholder="gpt-4o-mini"
-              />
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  {availableModels.length > 0 ? (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">Model</label>
+                      <select
+                        className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                        value={config.llmModel}
+                        onChange={e => updateConfig('llmModel', e.target.value)}
+                      >
+                        {availableModels.map(model => (
+                          <option key={model} value={model}>{model}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <Input
+                      label="Model"
+                      value={config.llmModel}
+                      onChange={e => updateConfig('llmModel', e.target.value)}
+                      placeholder="gpt-4o-mini"
+                    />
+                  )}
+                </div>
+                <Button
+                  variant="secondary"
+                  onClick={fetchAvailableModels}
+                  loading={fetchingModels}
+                  disabled={!config.llmApiKey}
+                >
+                  Fetch Models
+                </Button>
+              </div>
             </div>
           )}
 

@@ -104,6 +104,15 @@ API_KEY=your-api-key
 ADMIN_TOKEN=your-admin-token
 ```
 
+### Supported LLM Providers
+
+| Provider | Base URL |
+|----------|----------|
+| OpenAI | `https://api.openai.com/v1` |
+| OpenRouter | `https://openrouter.ai/api/v1` |
+| Requesty.ai | `https://router.requesty.ai/v1` |
+| Custom | Any OpenAI-compatible endpoint |
+
 ## Usage
 
 ### Adding Documents
@@ -275,6 +284,8 @@ Make sure Qdrant is running:
 docker run -p 6333:6333 qdrant/qdrant
 ```
 
+The backend will automatically retry connecting to Qdrant for up to 60 seconds on startup.
+
 ### "Invalid API key"
 
 1. Go to Settings
@@ -290,6 +301,13 @@ Your vector dimensions don't match the embedding model. Go to Settings → chang
 1. Check the docs path in Settings
 2. Make sure files have .md or .mdx extension
 3. Click refresh on the Documents page
+
+### Re-running the Setup Wizard
+
+If you need to reconfigure from scratch:
+1. Go to Settings
+2. Click "Re-run Setup" button
+3. The wizard will appear on next page load
 
 ## Contributing
 

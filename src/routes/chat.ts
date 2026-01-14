@@ -24,6 +24,14 @@ interface Source {
 
 // API Key authentication middleware
 function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
+  // Check if system is configured
+  if (!env.API_KEY || !env.LLM_API_KEY || !env.EMBED_API_KEY) {
+    return res.status(503).json({ 
+      error: 'System not configured',
+      message: 'Please complete the initial setup first'
+    });
+  }
+  
   const apiKey = req.headers['x-api-key'] as string;
   
   if (!apiKey) {

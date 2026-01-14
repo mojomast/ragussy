@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Save, RefreshCw, Eye, EyeOff, Copy, Check, Bot } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Save, RefreshCw, Eye, EyeOff, Copy, Check, Bot, Upload } from 'lucide-react'
+import { useDropzone } from 'react-dropzone'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
@@ -45,13 +46,39 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [showApiKeys, setShowApiKeys] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  const [uploadMode, setUploadMode] = useState<'url' | 'zip'>('url')
+  const [uploading, setUploading] = useState(false)
+  const [customLlmUrl, setCustomLlmUrl] = useState('')
+  const [customEmbedUrl, setCustomEmbedUrl] = useState('')
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [availableEmbedModels, setAvailableEmbedModels] = useState<string[]>([])
+  const [fetchingModels, setFetchingModels] = useState(false)
+  const [fetchingEmbedModels, setFetchingEmbedModels] = useState(false)
   const { toast } = useToast()
 
   const fetchSettings = async () => {
     try {
       const res = await fetch('/api/settings')
       const data = await res.json()
-      setSettings(data)
+      
+      // Store the actual (unmasked) API keys separately for API calls
+      const actualKeysRes = await fetch('/api/settings/actual-keys')
+      const actualKeys = await actualKeysRes.json()
+      
+      setSettings({
+        ...data,
+        _actualLlmApiKey: actualKeys.llmApiKey || '',
+        _actualEmbedApiKey: actualKeys.embedApiKey || '',
+      } as any)
+      
+      // Check if using custom URLs
+      const knownUrls = ['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1']
+      if (!knownUrls.includes(data.llmBaseUrl)) {
+        setCustomLlmUrl(data.llmBaseUrl)
+      }
+      if (!knownUrls.includes(data.embedBaseUrl)) {
+        setCustomEmbedUrl(data.embedBaseUrl)
+      }
     } catch {
       toast('error', 'Failed to load settings')
     } finally {
@@ -93,6 +120,15 @@ export default function SettingsPage() {
     }
   }
 
+  const resetSetupWizard = async () => {
+    try {
+      await fetch('/api/settings/reset-setup', { method: 'POST' })
+      window.location.reload()
+    } catch {
+      toast('error', 'Failed to reset setup')
+    }
+  }
+
   const generateToken = async (field: 'apiKey' | 'adminToken') => {
     try {
       const res = await fetch('/api/settings/generate-token', { method: 'POST' })
@@ -109,6 +145,119 @@ export default function SettingsPage() {
     setCopied(field)
     setTimeout(() => setCopied(null), 2000)
   }
+
+  const fetchAvailableModels = async () => {
+    if (!settings?.llmApiKey) {
+      toast('error', 'Please enter an API key first')
+      return
+    }
+
+    setFetchingModels(true)
+    try {
+      const baseUrl = settings.llmBaseUrl === 'custom' ? customLlmUrl : settings.llmBaseUrl
+      // Use actual unmasked key if available, otherwise use the displayed value
+      const actualKey = (settings as any)._actualLlmApiKey || settings.llmApiKey
+      
+      const res = await fetch('/api/settings/fetch-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          baseUrl,
+          apiKey: actualKey
+        }),
+      })
+      const data = await res.json()
+
+      if (data.success && data.models) {
+        setAvailableModels(data.models)
+        toast('success', `Found ${data.models.length} models`)
+      } else {
+        toast('error', data.error || 'Failed to fetch models')
+      }
+    } catch (error) {
+      toast('error', 'Failed to fetch models')
+    } finally {
+      setFetchingModels(false)
+    }
+  }
+
+  const fetchAvailableEmbedModels = async () => {
+    if (!settings?.embedApiKey) {
+      toast('error', 'Please enter an embedding API key first')
+      return
+    }
+
+    setFetchingEmbedModels(true)
+    try {
+      const baseUrl = settings.embedBaseUrl === 'custom' ? customEmbedUrl : settings.embedBaseUrl
+      const actualKey = (settings as any)._actualEmbedApiKey || settings.embedApiKey
+      
+      const res = await fetch('/api/settings/fetch-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          baseUrl,
+          apiKey: actualKey
+        }),
+      })
+      const data = await res.json()
+
+      if (data.success && data.models) {
+        // Filter for embedding models (usually contain 'embedding' in name)
+        const embedModels = data.models.filter((m: string) => 
+          m.includes('embedding') || m.includes('embed')
+        )
+        if (embedModels.length > 0) {
+          setAvailableEmbedModels(embedModels)
+          toast('success', `Found ${embedModels.length} embedding models`)
+        } else {
+          setAvailableEmbedModels(data.models)
+          toast('success', `Found ${data.models.length} models`)
+        }
+      } else {
+        toast('error', data.error || 'Failed to fetch models')
+      }
+    } catch (error) {
+      toast('error', 'Failed to fetch models')
+    } finally {
+      setFetchingEmbedModels(false)
+    }
+  }
+
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return
+
+    setUploading(true)
+    const formData = new FormData()
+    formData.append('file', acceptedFiles[0])
+
+    try {
+      const res = await fetch('/api/documents/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        toast('success', `Uploaded ${data.filesAdded} file(s). Run Full Reindex in Documents page to index them.`)
+        setUploadMode('url')
+      } else {
+        toast('error', data.error || 'Upload failed')
+      }
+    } catch (error) {
+      toast('error', 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }, [toast])
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'application/zip': ['.zip'],
+    },
+    maxFiles: 1,
+  })
 
   if (loading) {
     return (
@@ -134,6 +283,9 @@ export default function SettingsPage() {
           <p className="text-slate-500">Configure your RAG chatbot</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="ghost" onClick={resetSetupWizard} title="Re-run setup wizard">
+            Re-run Setup
+          </Button>
           <Button variant="secondary" onClick={fetchSettings}>
             <RefreshCw size={16} />
             Reset
@@ -153,16 +305,68 @@ export default function SettingsPage() {
             value={settings.projectName}
             onChange={e => updateSetting('projectName', e.target.value)}
           />
-          <Input
-            label="Public Docs URL"
-            value={settings.publicDocsBaseUrl}
-            onChange={e => updateSetting('publicDocsBaseUrl', e.target.value)}
-          />
-          <Input
-            label="Docs Path"
-            value={settings.docsPath}
-            onChange={e => updateSetting('docsPath', e.target.value)}
-          />
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Documentation Source</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setUploadMode('url')}
+                className={`flex-1 px-3 py-2 rounded-lg border transition-colors ${
+                  uploadMode === 'url'
+                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                    : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                }`}
+              >
+                URL
+              </button>
+              <button
+                onClick={() => setUploadMode('zip')}
+                className={`flex-1 px-3 py-2 rounded-lg border transition-colors ${
+                  uploadMode === 'zip'
+                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                    : 'border-slate-300 text-slate-600 hover:border-slate-400'
+                }`}
+              >
+                ZIP Upload
+              </button>
+            </div>
+          </div>
+          {uploadMode === 'url' ? (
+            <>
+              <Input
+                label="Public Docs URL"
+                value={settings.publicDocsBaseUrl}
+                onChange={e => updateSetting('publicDocsBaseUrl', e.target.value)}
+              />
+              <Input
+                label="Docs Path"
+                value={settings.docsPath}
+                onChange={e => updateSetting('docsPath', e.target.value)}
+              />
+            </>
+          ) : (
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-2">Upload Documentation ZIP</label>
+              <div
+                {...getRootProps()}
+                className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
+                  isDragActive ? 'border-primary-500 bg-primary-50' : 'border-slate-300 hover:border-slate-400'
+                }`}
+              >
+                <input {...getInputProps()} />
+                <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                {uploading ? (
+                  <p className="text-slate-600 text-sm">Uploading...</p>
+                ) : isDragActive ? (
+                  <p className="text-primary-600 text-sm">Drop ZIP file here...</p>
+                ) : (
+                  <>
+                    <p className="text-slate-600 text-sm mb-1">Drag & drop your documentation ZIP here, or click to select</p>
+                    <p className="text-xs text-slate-400">ZIP should contain .md or .mdx files</p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           <Input
             label="File Extensions"
             value={settings.docsExtensions}
@@ -178,13 +382,35 @@ export default function SettingsPage() {
             <label className="block text-sm font-medium text-slate-700 mb-2">Provider</label>
             <select
               className="w-full px-3 py-2 rounded-lg border border-slate-300"
-              value={settings.llmBaseUrl}
-              onChange={e => updateSetting('llmBaseUrl', e.target.value)}
+              value={settings.llmBaseUrl === 'custom' || !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(settings.llmBaseUrl) ? 'custom' : settings.llmBaseUrl}
+              onChange={e => {
+                if (e.target.value === 'custom') {
+                  updateSetting('llmBaseUrl', customLlmUrl || 'https://')
+                } else {
+                  updateSetting('llmBaseUrl', e.target.value)
+                  setCustomLlmUrl('')
+                }
+              }}
             >
               <option value="https://api.openai.com/v1">OpenAI</option>
               <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+              <option value="https://router.requesty.ai/v1">Requesty.ai</option>
+              <option value="custom">Custom (OpenAI-compatible)</option>
             </select>
           </div>
+          {(settings.llmBaseUrl === 'custom' || !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(settings.llmBaseUrl)) && (
+            <div className="col-span-2">
+              <Input
+                label="Custom Base URL"
+                value={customLlmUrl || settings.llmBaseUrl}
+                onChange={e => {
+                  setCustomLlmUrl(e.target.value)
+                  updateSetting('llmBaseUrl', e.target.value)
+                }}
+                placeholder="https://your-api.example.com/v1"
+              />
+            </div>
+          )}
           <div className="col-span-2">
             <Input
               label="API Key"
@@ -193,11 +419,42 @@ export default function SettingsPage() {
               onChange={e => updateSetting('llmApiKey', e.target.value)}
             />
           </div>
-          <Input
-            label="Model"
-            value={settings.llmModel}
-            onChange={e => updateSetting('llmModel', e.target.value)}
-          />
+          <div className="col-span-2">
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                {availableModels.length > 0 ? (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Model</label>
+                    <select
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      value={settings.llmModel}
+                      onChange={e => updateSetting('llmModel', e.target.value)}
+                    >
+                      {availableModels.map(model => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <Input
+                    label="Model"
+                    value={settings.llmModel}
+                    onChange={e => updateSetting('llmModel', e.target.value)}
+                    placeholder="gpt-4o-mini"
+                  />
+                )}
+              </div>
+              <Button
+                variant="secondary"
+                onClick={fetchAvailableModels}
+                loading={fetchingModels}
+                disabled={!settings.llmApiKey}
+              >
+                <RefreshCw size={16} />
+                Fetch Models
+              </Button>
+            </div>
+          </div>
           <Input
             label="Max Tokens"
             type="number"
@@ -208,33 +465,92 @@ export default function SettingsPage() {
       </Card>
 
       {/* Embeddings Settings */}
-      <Card title="Embeddings Configuration" description="Embedding model settings">
+      <Card title="Embeddings Configuration" description="Embedding model settings (separate from LLM)">
         <div className="grid grid-cols-2 gap-4">
-          <Input
-            label="Base URL"
-            value={settings.embedBaseUrl}
-            onChange={e => updateSetting('embedBaseUrl', e.target.value)}
-          />
-          <Input
-            label="API Key"
-            type={showApiKeys ? 'text' : 'password'}
-            value={settings.embedApiKey}
-            onChange={e => updateSetting('embedApiKey', e.target.value)}
-          />
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Model</label>
+          <div className="col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-2">Embedding Provider</label>
             <select
               className="w-full px-3 py-2 rounded-lg border border-slate-300"
-              value={settings.embedModel}
+              value={settings.embedBaseUrl === 'custom' || !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(settings.embedBaseUrl) ? 'custom' : settings.embedBaseUrl}
               onChange={e => {
-                updateSetting('embedModel', e.target.value)
-                updateSetting('vectorDim', e.target.value === 'text-embedding-3-large' ? 3072 : 1536)
+                if (e.target.value === 'custom') {
+                  updateSetting('embedBaseUrl', customEmbedUrl || 'https://')
+                } else {
+                  updateSetting('embedBaseUrl', e.target.value)
+                  setCustomEmbedUrl('')
+                }
               }}
             >
-              <option value="text-embedding-3-small">text-embedding-3-small (1536)</option>
-              <option value="text-embedding-3-large">text-embedding-3-large (3072)</option>
-              <option value="text-embedding-ada-002">text-embedding-ada-002 (1536)</option>
+              <option value="https://api.openai.com/v1">OpenAI</option>
+              <option value="https://openrouter.ai/api/v1">OpenRouter</option>
+              <option value="https://router.requesty.ai/v1">Requesty.ai</option>
+              <option value="custom">Custom (OpenAI-compatible)</option>
             </select>
+          </div>
+          {(settings.embedBaseUrl === 'custom' || !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(settings.embedBaseUrl)) && (
+            <div className="col-span-2">
+              <Input
+                label="Custom Base URL"
+                value={customEmbedUrl || settings.embedBaseUrl}
+                onChange={e => {
+                  setCustomEmbedUrl(e.target.value)
+                  updateSetting('embedBaseUrl', e.target.value)
+                }}
+                placeholder="https://your-api.example.com/v1"
+              />
+            </div>
+          )}
+          <div className="col-span-2">
+            <Input
+              label="API Key"
+              type={showApiKeys ? 'text' : 'password'}
+              value={settings.embedApiKey}
+              onChange={e => updateSetting('embedApiKey', e.target.value)}
+            />
+          </div>
+          <div className="col-span-2">
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                {availableEmbedModels.length > 0 ? (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Embedding Model</label>
+                    <select
+                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                      value={settings.embedModel}
+                      onChange={e => {
+                        updateSetting('embedModel', e.target.value)
+                        // Auto-detect vector dimensions for known models
+                        if (e.target.value.includes('3-large')) {
+                          updateSetting('vectorDim', 3072)
+                        } else if (e.target.value.includes('ada-002') || e.target.value.includes('3-small')) {
+                          updateSetting('vectorDim', 1536)
+                        }
+                      }}
+                    >
+                      {availableEmbedModels.map(model => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <Input
+                    label="Embedding Model"
+                    value={settings.embedModel}
+                    onChange={e => updateSetting('embedModel', e.target.value)}
+                    placeholder="text-embedding-3-small"
+                  />
+                )}
+              </div>
+              <Button
+                variant="secondary"
+                onClick={fetchAvailableEmbedModels}
+                loading={fetchingEmbedModels}
+                disabled={!settings.embedApiKey}
+              >
+                <RefreshCw size={16} />
+                Fetch Models
+              </Button>
+            </div>
           </div>
           <Input
             label="Vector Dimensions"

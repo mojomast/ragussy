@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 import { logger } from '../config/index.js';
 
 const router: Router = Router();
 const ENV_PATH = path.join(process.cwd(), '.env');
+const SETUP_COMPLETE_PATH = path.join(process.cwd(), 'data', '.setup-complete');
 
 interface Settings {
   projectName: string;
@@ -146,11 +148,21 @@ DISCORD_COOLDOWN_SECONDS=${env.DISCORD_COOLDOWN_SECONDS || '5'}
   await fs.writeFile(ENV_PATH, content);
 }
 
-// Check if initial setup is needed
+// Check if initial setup is needed (NO AUTH REQUIRED)
 router.get('/setup-status', async (_req: Request, res: Response) => {
   try {
     const env = await parseEnvFile();
-    const isConfigured = !!(env.LLM_API_KEY && env.EMBED_API_KEY && env.API_KEY);
+    
+    // Check if setup was explicitly completed
+    let setupCompleted = false;
+    try {
+      await fs.access(SETUP_COMPLETE_PATH);
+      setupCompleted = true;
+    } catch {
+      // File doesn't exist, setup not completed
+    }
+    
+    const isConfigured = setupCompleted && !!(env.LLM_API_KEY && env.EMBED_API_KEY && env.API_KEY);
     
     return res.json({
       isConfigured,
@@ -208,6 +220,21 @@ router.get('/', async (_req: Request, res: Response) => {
   } catch (error) {
     logger.error({ error }, 'Failed to get settings');
     return res.status(500).json({ error: 'Failed to get settings' });
+  }
+});
+
+// Get actual unmasked API keys (for making API calls)
+router.get('/actual-keys', async (_req: Request, res: Response) => {
+  try {
+    const env = await parseEnvFile();
+    
+    return res.json({
+      llmApiKey: env.LLM_API_KEY || '',
+      embedApiKey: env.EMBED_API_KEY || '',
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get actual keys');
+    return res.status(500).json({ error: 'Failed to get keys' });
   }
 });
 
@@ -272,9 +299,13 @@ router.put('/', async (req: Request, res: Response) => {
   }
 });
 
-// Test API key
+// Test API key (NO AUTH REQUIRED - used during setup)
 router.post('/test-api-key', async (req: Request, res: Response) => {
   const { baseUrl, apiKey, type } = req.body;
+  
+  if (!baseUrl || !apiKey) {
+    return res.json({ valid: false, error: 'Missing baseUrl or apiKey' });
+  }
   
   try {
     const response = await fetch(`${baseUrl}/models`, {
@@ -291,11 +322,68 @@ router.post('/test-api-key', async (req: Request, res: Response) => {
   }
 });
 
-// Generate secure token
+// Fetch available models (NO AUTH REQUIRED - used during setup)
+router.post('/fetch-models', async (req: Request, res: Response) => {
+  const { baseUrl, apiKey } = req.body;
+  
+  if (!baseUrl || !apiKey) {
+    return res.json({ success: false, error: 'Missing baseUrl or apiKey' });
+  }
+  
+  try {
+    const response = await fetch(`${baseUrl}/models`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    
+    if (!response.ok) {
+      return res.json({ success: false, error: `HTTP ${response.status}` });
+    }
+    
+    const data = await response.json();
+    
+    // OpenAI format: { data: [{ id: "model-name" }] }
+    if (data.data && Array.isArray(data.data)) {
+      const models = data.data.map((m: any) => m.id).sort();
+      return res.json({ success: true, models });
+    }
+    
+    return res.json({ success: false, error: 'Unexpected response format' });
+  } catch (error) {
+    logger.error({ error }, 'Failed to fetch models');
+    return res.json({ success: false, error: 'Connection failed' });
+  }
+});
+
+// Generate secure token (NO AUTH REQUIRED - used during setup)
 router.post('/generate-token', (_req: Request, res: Response) => {
-  const crypto = require('crypto');
   const token = crypto.randomBytes(32).toString('hex').slice(0, 32);
   return res.json({ token });
+});
+
+// Mark setup as complete (NO AUTH REQUIRED - called at end of wizard)
+router.post('/complete-setup', async (_req: Request, res: Response) => {
+  try {
+    const dataDir = path.dirname(SETUP_COMPLETE_PATH);
+    await fs.mkdir(dataDir, { recursive: true });
+    await fs.writeFile(SETUP_COMPLETE_PATH, new Date().toISOString());
+    logger.info('Setup marked as complete');
+    return res.json({ success: true });
+  } catch (error) {
+    logger.error({ error }, 'Failed to mark setup complete');
+    return res.status(500).json({ error: 'Failed to complete setup' });
+  }
+});
+
+// Reset setup (allows re-running wizard)
+router.post('/reset-setup', async (_req: Request, res: Response) => {
+  try {
+    await fs.unlink(SETUP_COMPLETE_PATH).catch(() => {});
+    logger.info('Setup reset');
+    return res.json({ success: true });
+  } catch (error) {
+    logger.error({ error }, 'Failed to reset setup');
+    return res.status(500).json({ error: 'Failed to reset setup' });
+  }
 });
 
 export default router;
