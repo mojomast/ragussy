@@ -2,7 +2,7 @@
 
 A self-hosted RAG (Retrieval-Augmented Generation) chatbot optimized for Markdown documentation and forum discussions. Point it at your markdown docs and get an AI-powered Q&A system with complete control over configuration, documents, and vector storage.
 
-![Ragussy Screenshot](https://via.placeholder.com/800x400?text=Ragussy+Dashboard)
+![Ragussy Screenshot](docs/screenshots/chat.png)
 
 ## Features
 
@@ -65,14 +65,22 @@ Open http://localhost:5173 - the setup wizard will guide you through configurati
 ### Setup Wizard
 Configure API keys, embedding models, and vector database with a guided wizard.
 
+![Setup Wizard](docs/screenshots/setup_wizard.png)
+
 ### Chat Interface
 Ask questions about your documentation with source citations.
+
+![Chat Interface](docs/screenshots/chat.png)
 
 ### Document Management
 Upload, view, and manage your markdown documentation.
 
+![Document Management](docs/screenshots/documents.png)
+
 ### Vector Store
 Monitor and manage your Qdrant vector collections.
+
+![Vector Store](docs/screenshots/vector_store.png)
 
 ## Configuration
 
