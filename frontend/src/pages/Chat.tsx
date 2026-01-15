@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, ExternalLink, Loader2, Image as ImageIcon, ChevronDown } from 'lucide-react'
+import { Send, Bot, User, ExternalLink, Loader2, Image as ImageIcon, ChevronDown, Trash2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import Button from '@/components/Button'
 import { cn } from '@/lib/utils'
@@ -150,12 +150,44 @@ export default function Chat() {
     }
   }
 
+  const handleClearContext = async () => {
+    if (conversationId) {
+      try {
+        await fetch(`/api/chat/${conversationId}`, {
+          method: 'DELETE',
+          headers: {
+            'x-api-key': apiKey || 'demo',
+          },
+        });
+      } catch (error) {
+        console.error('Failed to clear conversation context:', error);
+      }
+    }
+
+    setMessages([]);
+    setConversationId(null);
+  };
+
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
-        <h1 className="text-xl font-semibold text-slate-900">Chat with Your Docs</h1>
-        <p className="text-sm text-slate-500">Ask questions about your documentation</p>
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">Chat with Your Docs</h1>
+          <p className="text-sm text-slate-500">Ask questions about your documentation</p>
+        </div>
+
+        {messages.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleClearContext}
+            className="flex items-center gap-2 text-slate-600 hover:text-red-600 hover:border-red-200 hover:bg-red-50"
+          >
+            <Trash2 size={16} />
+            New Chat
+          </Button>
+        )}
       </header>
 
       {/* API Key Input (temporary for demo) */}

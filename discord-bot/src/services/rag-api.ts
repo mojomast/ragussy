@@ -95,6 +95,23 @@ export class RagApiClient {
     return await response.json() as MoreImagesResponse;
   }
 
+  async clearConversation(conversationId: string): Promise<void> {
+    const url = `${this.baseUrl}/chat/${conversationId}`;
+
+    logger.debug({ conversationId }, 'Clearing conversation');
+
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'x-api-key': this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to clear conversation: ${response.status}`);
+    }
+  }
+
   async health(): Promise<HealthResponse> {
     const url = `${this.baseUrl}/health`;
 
