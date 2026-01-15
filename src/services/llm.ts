@@ -10,6 +10,9 @@ let dynamicEnvCache: Record<string, string> | null = null;
 let dynamicEnvCacheTime = 0;
 const CACHE_TTL_MS = 5000; // 5 seconds
 
+let envLastModified = 0;
+let refreshPromise: Promise<Record<string, string>> | null = null;
+
 /**
  * Parse .env file to get current values (for settings that can change at runtime)
  */
@@ -19,30 +22,55 @@ async function parseEnvFile(): Promise<Record<string, string>> {
     return dynamicEnvCache;
   }
 
-  try {
-    const envPath = path.join(process.cwd(), '.env');
-    const content = await fs.readFile(envPath, 'utf-8');
-    const envVars: Record<string, string> = {};
-    
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      
-      const eqIndex = trimmed.indexOf('=');
-      if (eqIndex > 0) {
-        const key = trimmed.slice(0, eqIndex);
-        const value = trimmed.slice(eqIndex + 1);
-        envVars[key] = value;
-      }
-    }
-    
-    dynamicEnvCache = envVars;
-    dynamicEnvCacheTime = now;
-    return envVars;
-  } catch {
-    // Fall back to process.env
-    return {};
+  if (refreshPromise) {
+    return refreshPromise;
   }
+
+  refreshPromise = (async () => {
+    try {
+      const envPath = path.join(process.cwd(), '.env');
+      let stats;
+      try {
+        stats = await fs.stat(envPath);
+      } catch {
+        // File likely doesn't exist, proceed to readFile to handle error standard way
+      }
+
+      if (stats && dynamicEnvCache && stats.mtimeMs === envLastModified) {
+        dynamicEnvCacheTime = Date.now();
+        return dynamicEnvCache;
+      }
+
+      const content = await fs.readFile(envPath, 'utf-8');
+      const envVars: Record<string, string> = {};
+
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+
+        const eqIndex = trimmed.indexOf('=');
+        if (eqIndex > 0) {
+          const key = trimmed.slice(0, eqIndex);
+          const value = trimmed.slice(eqIndex + 1);
+          envVars[key] = value;
+        }
+      }
+      
+      dynamicEnvCache = envVars;
+      dynamicEnvCacheTime = Date.now();
+      if (stats) {
+        envLastModified = stats.mtimeMs;
+      }
+      return envVars;
+    } catch {
+      // Fall back to process.env
+      return {};
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 /**
