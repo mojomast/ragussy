@@ -3,8 +3,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
-import { logger, getDocsPath } from '../config/index.js';
-import { ingestIncremental, ingestFull, getAllFileStates } from '../ingestion/index.js';
+import { logger, getDocsPath, getDocsExtensions } from '../config/index.js';
+import { ingestIncremental, ingestFull, ingestFullPartial, ingestSelected, getAllFileStates } from '../ingestion/index.js';
 
 const router: Router = Router();
 
@@ -24,12 +24,13 @@ const upload = multer({
   storage,
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
   fileFilter: (_req, file, cb) => {
-    const allowedTypes = ['.zip', '.md', '.mdx'];
+    // Accept zip files and any text-based files
     const ext = path.extname(file.originalname).toLowerCase();
-    if (allowedTypes.includes(ext)) {
+    if (ext === '.zip') {
       cb(null, true);
     } else {
-      cb(new Error('Only .zip, .md, and .mdx files are allowed'));
+      // Accept any file - we'll treat it as plaintext
+      cb(null, true);
     }
   },
 });
@@ -61,6 +62,10 @@ router.get('/', async (_req: Request, res: Response) => {
 
 async function listDocsRecursive(dir: string, baseDir: string): Promise<any[]> {
   const files: any[] = [];
+  const extensions = getDocsExtensions();
+  
+  // Build regex pattern from configured extensions
+  const extPattern = new RegExp(`(${extensions.map(e => e.replace('.', '\\.')).join('|')})$`, 'i');
   
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -76,7 +81,7 @@ async function listDocsRecursive(dir: string, baseDir: string): Promise<any[]> {
       if (entry.isDirectory()) {
         const subFiles = await listDocsRecursive(fullPath, baseDir);
         files.push(...subFiles);
-      } else if (/\.(md|mdx)$/i.test(entry.name)) {
+      } else if (extPattern.test(entry.name)) {
         const stats = await fs.stat(fullPath);
         files.push({
           name: entry.name,
@@ -135,7 +140,6 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         if (entry.isDirectory) continue;
         
         const entryName = entry.entryName;
-        if (!/\.(md|mdx)$/i.test(entryName)) continue;
         
         // Skip hidden files and __MACOSX
         if (entryName.includes('__MACOSX') || entryName.split('/').some(p => p.startsWith('.'))) {
@@ -151,9 +155,10 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       // Clean up uploaded zip
       await fs.unlink(uploadedPath);
     } else {
-      // Single markdown file
+      // Single file - copy instead of rename to handle cross-filesystem moves in Docker
       const targetPath = path.join(docsPath, req.file.originalname);
-      await fs.rename(uploadedPath, targetPath);
+      await fs.copyFile(uploadedPath, targetPath);
+      await fs.unlink(uploadedPath); // Clean up the uploaded file
       addedFiles.push(req.file.originalname);
     }
     
@@ -193,15 +198,55 @@ router.delete('/*', async (req: Request, res: Response) => {
 // Trigger ingestion
 router.post('/ingest', async (req: Request, res: Response) => {
   try {
-    const { full } = req.body;
+    const { full, partial, maxChunksPerBatch, startIndex, selectedFiles } = req.body;
     
-    logger.info({ full }, 'Starting ingestion');
-    const result = full ? await ingestFull() : await ingestIncremental();
+    // Debug log the entire request body
+    logger.info({ body: req.body }, 'Ingest request received');
     
-    return res.json({ success: true, result });
-  } catch (error) {
+    // Check if embedding API is configured
+    const env = await import('../config/index.js');
+    if (!env.env.EMBED_API_KEY) {
+      return res.status(400).json({ 
+        error: 'Embedding API not configured', 
+        message: 'Please configure your embedding API key in Settings and restart the server.' 
+      });
+    }
+    
+    // Log what we're doing
+    if (selectedFiles && Array.isArray(selectedFiles) && selectedFiles.length > 0) {
+      logger.info({ files: selectedFiles, count: selectedFiles.length }, 'Starting selective ingestion');
+      // Selective ingestion - only ingest specified files
+      const result = await ingestSelected({
+        filePaths: selectedFiles,
+      });
+      return res.json({ success: true, result });
+    } else if (partial) {
+      logger.info({ full, maxChunksPerBatch, startIndex }, 'Starting partial ingestion');
+      // Partial ingestion for large datasets
+      const result = await ingestFullPartial({
+        maxChunksPerBatch: maxChunksPerBatch || 500,
+        startIndex: startIndex || 0,
+      });
+      return res.json({ success: true, result });
+    } else {
+      logger.info({ full }, 'Starting full/incremental ingestion');
+      const result = full ? await ingestFull() : await ingestIncremental();
+      return res.json({ success: true, result });
+    }
+  } catch (error: any) {
     logger.error({ error }, 'Ingestion failed');
-    return res.status(500).json({ error: 'Ingestion failed', message: String(error) });
+    
+    // Provide more helpful error messages
+    let message = String(error);
+    if (message.includes('401') || message.includes('Unauthorized')) {
+      message = 'Embedding API authentication failed. Check your API key and restart the server.';
+    } else if (message.includes('dimension mismatch')) {
+      message = error.message;
+    } else if (message.includes('ECONNREFUSED') || message.includes('fetch failed')) {
+      message = 'Could not connect to embedding API. Check your base URL and restart the server.';
+    }
+    
+    return res.status(500).json({ error: 'Ingestion failed', message });
   }
 });
 

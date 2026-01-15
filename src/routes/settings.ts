@@ -28,6 +28,10 @@ interface Settings {
   chunkTargetTokens: number;
   chunkMaxTokens: number;
   chunkOverlapTokens: number;
+  absoluteMaxTokens: number;
+  embeddingThreads: number;
+  upsertThreads: number;
+  failFastValidation: boolean;
   apiKey: string;
   adminToken: string;
   customSystemPrompt: string;
@@ -116,8 +120,12 @@ EMBED_MODEL=${env.EMBED_MODEL || 'text-embedding-3-small'}
 MAX_CONTEXT_TOKENS=${env.MAX_CONTEXT_TOKENS || '4000'}
 RETRIEVAL_TOP_K=${env.RETRIEVAL_TOP_K || '6'}
 CHUNK_TARGET_TOKENS=${env.CHUNK_TARGET_TOKENS || '500'}
-CHUNK_MAX_TOKENS=${env.CHUNK_MAX_TOKENS || '700'}
-CHUNK_OVERLAP_TOKENS=${env.CHUNK_OVERLAP_TOKENS || '75'}
+CHUNK_MAX_TOKENS=${env.CHUNK_MAX_TOKENS || '800'}
+CHUNK_OVERLAP_TOKENS=${env.CHUNK_OVERLAP_TOKENS || '120'}
+ABSOLUTE_MAX_TOKENS=${env.ABSOLUTE_MAX_TOKENS || '1024'}
+EMBEDDING_THREADS=${env.EMBEDDING_THREADS || '4'}
+UPSERT_THREADS=${env.UPSERT_THREADS || '2'}
+FAIL_FAST_VALIDATION=${env.FAIL_FAST_VALIDATION || 'false'}
 
 # ===================
 # Security
@@ -200,8 +208,12 @@ router.get('/', async (_req: Request, res: Response) => {
       maxContextTokens: parseInt(env.MAX_CONTEXT_TOKENS || '4000'),
       retrievalTopK: parseInt(env.RETRIEVAL_TOP_K || '6'),
       chunkTargetTokens: parseInt(env.CHUNK_TARGET_TOKENS || '500'),
-      chunkMaxTokens: parseInt(env.CHUNK_MAX_TOKENS || '700'),
-      chunkOverlapTokens: parseInt(env.CHUNK_OVERLAP_TOKENS || '75'),
+      chunkMaxTokens: parseInt(env.CHUNK_MAX_TOKENS || '800'),
+      chunkOverlapTokens: parseInt(env.CHUNK_OVERLAP_TOKENS || '120'),
+      absoluteMaxTokens: parseInt(env.ABSOLUTE_MAX_TOKENS || '1024'),
+      embeddingThreads: parseInt(env.EMBEDDING_THREADS || '4'),
+      upsertThreads: parseInt(env.UPSERT_THREADS || '2'),
+      failFastValidation: env.FAIL_FAST_VALIDATION === 'true',
       apiKey: env.API_KEY ? '••••••••' + env.API_KEY.slice(-4) : '',
       adminToken: env.ADMIN_TOKEN ? '••••••••' + env.ADMIN_TOKEN.slice(-4) : '',
       customSystemPrompt: env.CUSTOM_SYSTEM_PROMPT || '',
@@ -238,6 +250,17 @@ router.get('/actual-keys', async (_req: Request, res: Response) => {
   }
 });
 
+// Get chat API key (for internal UI use)
+router.get('/chat-api-key', async (_req: Request, res: Response) => {
+  try {
+    const env = await parseEnvFile();
+    return res.json({ apiKey: env.API_KEY || '' });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get chat API key');
+    return res.status(500).json({ error: 'Failed to get key' });
+  }
+});
+
 // Update settings
 router.put('/', async (req: Request, res: Response) => {
   try {
@@ -265,6 +288,10 @@ router.put('/', async (req: Request, res: Response) => {
       chunkTargetTokens: 'CHUNK_TARGET_TOKENS',
       chunkMaxTokens: 'CHUNK_MAX_TOKENS',
       chunkOverlapTokens: 'CHUNK_OVERLAP_TOKENS',
+      absoluteMaxTokens: 'ABSOLUTE_MAX_TOKENS',
+      embeddingThreads: 'EMBEDDING_THREADS',
+      upsertThreads: 'UPSERT_THREADS',
+      failFastValidation: 'FAIL_FAST_VALIDATION',
       apiKey: 'API_KEY',
       adminToken: 'ADMIN_TOKEN',
       customSystemPrompt: 'CUSTOM_SYSTEM_PROMPT',
@@ -358,6 +385,77 @@ router.post('/fetch-models', async (req: Request, res: Response) => {
 router.post('/generate-token', (_req: Request, res: Response) => {
   const token = crypto.randomBytes(32).toString('hex').slice(0, 32);
   return res.json({ token });
+});
+
+// Fetch available embedding models (NO AUTH REQUIRED - used during setup)
+router.post('/fetch-embedding-models', async (req: Request, res: Response) => {
+  const { baseUrl, apiKey } = req.body;
+  
+  if (!baseUrl || !apiKey) {
+    return res.json({ success: false, error: 'Missing baseUrl or apiKey' });
+  }
+  
+  try {
+    // Try OpenRouter's dedicated embeddings endpoint first
+    if (baseUrl.includes('openrouter.ai')) {
+      const response = await fetch('https://openrouter.ai/api/v1/embeddings/models', {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.data && Array.isArray(data.data)) {
+          const models = data.data.map((m: any) => ({
+            id: m.id,
+            name: m.name || m.id,
+            dimensions: m.architecture?.embedding_dimensions || null,
+            pricing: m.pricing?.prompt ? parseFloat(m.pricing.prompt) : null,
+          })).sort((a: any, b: any) => a.id.localeCompare(b.id));
+          return res.json({ success: true, models });
+        }
+      }
+    }
+    
+    // Fallback: fetch all models and filter for embedding ones
+    const response = await fetch(`${baseUrl}/models`, {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    });
+    
+    if (!response.ok) {
+      return res.json({ success: false, error: `HTTP ${response.status}` });
+    }
+    
+    const data = await response.json();
+    
+    if (data.data && Array.isArray(data.data)) {
+      // Filter for embedding models
+      const embedModels = data.data
+        .filter((m: any) => {
+          const id = m.id?.toLowerCase() || '';
+          const modality = m.architecture?.modality || '';
+          return id.includes('embed') || 
+                 id.includes('embedding') || 
+                 modality.includes('embedding') ||
+                 modality === 'text->embedding';
+        })
+        .map((m: any) => ({
+          id: m.id,
+          name: m.name || m.id,
+          dimensions: m.architecture?.embedding_dimensions || null,
+          pricing: m.pricing?.prompt ? parseFloat(m.pricing.prompt) : null,
+        }))
+        .sort((a: any, b: any) => a.id.localeCompare(b.id));
+      
+      if (embedModels.length > 0) {
+        return res.json({ success: true, models: embedModels });
+      }
+    }
+    
+    return res.json({ success: false, error: 'No embedding models found' });
+  } catch (error) {
+    logger.error({ error }, 'Failed to fetch embedding models');
+    return res.json({ success: false, error: 'Connection failed' });
+  }
 });
 
 // Mark setup as complete (NO AUTH REQUIRED - called at end of wizard)

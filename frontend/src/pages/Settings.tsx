@@ -1,10 +1,22 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Save, RefreshCw, Eye, EyeOff, Copy, Check, Bot, Upload } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Save, RefreshCw, Eye, EyeOff, Copy, Check, Bot, Upload, Database, Terminal, Send, Trash2, ExternalLink } from 'lucide-react'
 import { useDropzone } from 'react-dropzone'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
 import { useToast } from '@/components/Toast'
+
+interface ApiLogEntry {
+  id: string
+  timestamp: Date
+  method: string
+  url: string
+  status?: number
+  duration?: number
+  request?: any
+  response?: any
+  error?: string
+}
 
 interface Settings {
   projectName: string
@@ -26,6 +38,10 @@ interface Settings {
   chunkTargetTokens: number
   chunkMaxTokens: number
   chunkOverlapTokens: number
+  absoluteMaxTokens: number
+  embeddingThreads: number
+  upsertThreads: number
+  failFastValidation: boolean
   apiKey: string
   adminToken: string
   customSystemPrompt: string
@@ -51,10 +67,23 @@ export default function SettingsPage() {
   const [customLlmUrl, setCustomLlmUrl] = useState('')
   const [customEmbedUrl, setCustomEmbedUrl] = useState('')
   const [availableModels, setAvailableModels] = useState<string[]>([])
-  const [availableEmbedModels, setAvailableEmbedModels] = useState<string[]>([])
+  const [availableEmbedModels, setAvailableEmbedModels] = useState<{id: string, name: string, dimensions: number | null}[]>([])
   const [fetchingModels, setFetchingModels] = useState(false)
   const [fetchingEmbedModels, setFetchingEmbedModels] = useState(false)
   const { toast } = useToast()
+  
+  // Qdrant Console state
+  const [qdrantInfo, setQdrantInfo] = useState<any>(null)
+  const [qdrantCollections, setQdrantCollections] = useState<string[]>([])
+  const [loadingQdrant, setLoadingQdrant] = useState(false)
+  
+  // API Request Console state
+  const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([])
+  const [apiMethod, setApiMethod] = useState<'GET' | 'POST' | 'PUT' | 'DELETE'>('GET')
+  const [apiEndpoint, setApiEndpoint] = useState('/api/health')
+  const [apiBody, setApiBody] = useState('')
+  const [apiLoading, setApiLoading] = useState(false)
+  const apiLogsRef = useRef<HTMLDivElement>(null)
 
   // Known embedding models with their dimensions
   const KNOWN_EMBEDDING_MODELS: Record<string, number> = {
@@ -64,15 +93,66 @@ export default function SettingsPage() {
     'openai/text-embedding-3-small': 1536,
     'openai/text-embedding-3-large': 3072,
     'openai/text-embedding-ada-002': 1536,
+    // Google models
+    'google/gemini-embedding-001': 768,
+    'google/text-embedding-004': 768,
+    // Voyage models
+    'voyage-3': 1024,
+    'voyage-3-lite': 512,
+    'voyage-code-3': 1024,
+    'voyage-finance-2': 1024,
+    'voyage-law-2': 1024,
+    'voyage-multilingual-2': 1024,
+    'voyage-large-2': 1536,
+    'voyage-2': 1024,
+    // Cohere models
+    'cohere/embed-english-v3.0': 1024,
+    'cohere/embed-multilingual-v3.0': 1024,
+    'cohere/embed-english-light-v3.0': 384,
+    'cohere/embed-multilingual-light-v3.0': 384,
+    'embed-english-v3.0': 1024,
+    'embed-multilingual-v3.0': 1024,
+    'embed-english-light-v3.0': 384,
+    'embed-multilingual-light-v3.0': 384,
+    // Mistral
+    'mistral-embed': 1024,
+    // BAAI BGE models
+    'baai/bge-m3': 1024,
+    'baai/bge-large-en-v1.5': 1024,
+    'baai/bge-base-en-v1.5': 768,
+    'baai/bge-small-en-v1.5': 384,
+    'bge-m3': 1024,
+    'bge-large-en-v1.5': 1024,
+    'bge-base-en-v1.5': 768,
+    'bge-small-en-v1.5': 384,
+    // Qwen
+    'qwen/qwen3-embedding-0.6b': 1024,
+    'qwen/qwen3-embedding-4b': 2560,
+    'qwen/qwen3-embedding-8b': 4096,
+    // GTE models
+    'thenlper/gte-base': 768,
+    'thenlper/gte-large': 1024,
   }
 
   // Get vector dimension for a model
   const getVectorDimForModel = (model: string): number => {
+    // Check exact match first
     if (KNOWN_EMBEDDING_MODELS[model]) return KNOWN_EMBEDDING_MODELS[model]
-    if (model.includes('3-large') || model.includes('large-3')) return 3072
-    if (model.includes('3-small') || model.includes('small-3')) return 1536
-    if (model.includes('ada-002') || model.includes('ada')) return 1536
-    return 1536
+    
+    // Check if model name contains a known model
+    const lowerModel = model.toLowerCase()
+    for (const [knownModel, dim] of Object.entries(KNOWN_EMBEDDING_MODELS)) {
+      if (lowerModel.includes(knownModel.toLowerCase())) return dim
+    }
+    
+    // Pattern matching fallbacks
+    if (lowerModel.includes('3-large') || lowerModel.includes('large-3')) return 3072
+    if (lowerModel.includes('3-small') || lowerModel.includes('small-3')) return 1536
+    if (lowerModel.includes('ada-002') || lowerModel.includes('ada')) return 1536
+    if (lowerModel.includes('voyage')) return 1024
+    if (lowerModel.includes('cohere') || lowerModel.includes('embed-')) return 1024
+    
+    return 1536 // Default
   }
 
   const fetchSettings = async () => {
@@ -211,7 +291,7 @@ export default function SettingsPage() {
       const baseUrl = settings.embedBaseUrl === 'custom' ? customEmbedUrl : settings.embedBaseUrl
       const actualKey = (settings as any)._actualEmbedApiKey || settings.embedApiKey
       
-      const res = await fetch('/api/settings/fetch-models', {
+      const res = await fetch('/api/settings/fetch-embedding-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -222,25 +302,126 @@ export default function SettingsPage() {
       const data = await res.json()
 
       if (data.success && data.models) {
-        // Filter for embedding models (usually contain 'embedding' in name)
-        const embedModels = data.models.filter((m: string) => 
-          m.includes('embedding') || m.includes('embed')
-        )
-        if (embedModels.length > 0) {
-          setAvailableEmbedModels(embedModels)
-          toast('success', `Found ${embedModels.length} embedding models`)
-        } else {
-          setAvailableEmbedModels(data.models)
-          toast('success', `Found ${data.models.length} models`)
-        }
+        setAvailableEmbedModels(data.models)
+        toast('success', `Found ${data.models.length} embedding models`)
       } else {
-        toast('error', data.error || 'Failed to fetch models')
+        toast('error', data.error || 'Failed to fetch embedding models')
       }
     } catch (error) {
-      toast('error', 'Failed to fetch models')
+      toast('error', 'Failed to fetch embedding models')
     } finally {
       setFetchingEmbedModels(false)
     }
+  }
+
+  // Qdrant Console functions
+  const fetchQdrantInfo = async () => {
+    if (!settings?.qdrantUrl) {
+      toast('error', 'Qdrant URL not configured')
+      return
+    }
+    
+    setLoadingQdrant(true)
+    try {
+      // Fetch cluster info
+      const infoRes = await fetch(`${settings.qdrantUrl}/`)
+      const info = await infoRes.json()
+      setQdrantInfo(info)
+      
+      // Fetch collections
+      const collectionsRes = await fetch(`${settings.qdrantUrl}/collections`)
+      const collectionsData = await collectionsRes.json()
+      if (collectionsData.result?.collections) {
+        setQdrantCollections(collectionsData.result.collections.map((c: any) => c.name))
+      }
+      
+      toast('success', 'Qdrant info loaded')
+    } catch (error) {
+      toast('error', 'Failed to connect to Qdrant')
+    } finally {
+      setLoadingQdrant(false)
+    }
+  }
+
+  const fetchCollectionInfo = async (collectionName: string) => {
+    if (!settings?.qdrantUrl) return null
+    
+    try {
+      const res = await fetch(`${settings.qdrantUrl}/collections/${collectionName}`)
+      return await res.json()
+    } catch {
+      return null
+    }
+  }
+
+  // API Request Console functions
+  const addApiLog = (entry: Omit<ApiLogEntry, 'id' | 'timestamp'>) => {
+    const newEntry: ApiLogEntry = {
+      ...entry,
+      id: crypto.randomUUID(),
+      timestamp: new Date(),
+    }
+    setApiLogs(prev => [newEntry, ...prev].slice(0, 50)) // Keep last 50 entries
+    setTimeout(() => {
+      apiLogsRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+    }, 100)
+  }
+
+  const executeApiRequest = async () => {
+    setApiLoading(true)
+    const startTime = Date.now()
+    
+    try {
+      const options: RequestInit = {
+        method: apiMethod,
+        headers: { 'Content-Type': 'application/json' },
+      }
+      
+      if (apiMethod !== 'GET' && apiBody) {
+        try {
+          options.body = JSON.stringify(JSON.parse(apiBody))
+        } catch {
+          options.body = apiBody
+        }
+      }
+      
+      const res = await fetch(apiEndpoint, options)
+      const duration = Date.now() - startTime
+      
+      let responseData
+      const contentType = res.headers.get('content-type')
+      if (contentType?.includes('application/json')) {
+        responseData = await res.json()
+      } else {
+        responseData = await res.text()
+      }
+      
+      addApiLog({
+        method: apiMethod,
+        url: apiEndpoint,
+        status: res.status,
+        duration,
+        request: apiMethod !== 'GET' && apiBody ? JSON.parse(apiBody) : undefined,
+        response: responseData,
+      })
+      
+      toast(res.ok ? 'success' : 'error', `${apiMethod} ${apiEndpoint} - ${res.status} (${duration}ms)`)
+    } catch (error: any) {
+      const duration = Date.now() - startTime
+      addApiLog({
+        method: apiMethod,
+        url: apiEndpoint,
+        duration,
+        error: error.message,
+      })
+      toast('error', `Request failed: ${error.message}`)
+    } finally {
+      setApiLoading(false)
+    }
+  }
+
+  const clearApiLogs = () => {
+    setApiLogs([])
   }
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -258,7 +439,11 @@ export default function SettingsPage() {
       const data = await res.json()
 
       if (data.success) {
-        toast('success', `Uploaded ${data.filesAdded} file(s). Run Full Reindex in Documents page to index them.`)
+        const isZip = acceptedFiles[0].name.endsWith('.zip')
+        toast('success', isZip 
+          ? `ZIP extracted! ${data.filesAdded} markdown file(s) added to docs folder. Run Full Reindex to index them.`
+          : `Uploaded ${data.filesAdded} file(s). Run Full Reindex in Documents page to index them.`
+        )
         setUploadMode('url')
       } else {
         toast('error', data.error || 'Upload failed')
@@ -272,9 +457,7 @@ export default function SettingsPage() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'application/zip': ['.zip'],
-    },
+    // Accept any file type
     maxFiles: 1,
   })
 
@@ -387,9 +570,10 @@ export default function SettingsPage() {
             </div>
           )}
           <Input
-            label="File Extensions"
+            label="File Extensions to Index"
             value={settings.docsExtensions}
             onChange={e => updateSetting('docsExtensions', e.target.value)}
+            hint="Comma-separated list of file extensions to include when indexing (e.g., .md,.mdx,.txt)"
           />
         </div>
       </Card>
@@ -535,37 +719,38 @@ export default function SettingsPage() {
                     <label className="block text-sm font-medium text-slate-700 mb-2">Embedding Model</label>
                     <select
                       className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                      value={settings.embedModel}
+                      value={settings.embedModel || ''}
                       onChange={e => {
                         const model = e.target.value
-                        updateSetting('embedModel', model)
-                        updateSetting('vectorDim', getVectorDimForModel(model))
+                        // Find dimensions from fetched models or use lookup
+                        const modelInfo = availableEmbedModels.find(m => m.id === model)
+                        const dimensions = modelInfo?.dimensions || getVectorDimForModel(model)
+                        // Update both model and dimensions in a single state update
+                        setSettings(prev => prev ? { ...prev, embedModel: model, vectorDim: dimensions } : prev)
                       }}
                     >
+                      <option value="">Select an embedding model...</option>
                       {availableEmbedModels.map(model => (
-                        <option key={model} value={model}>
-                          {model} ({getVectorDimForModel(model)} dims)
+                        <option key={model.id} value={model.id}>
+                          {model.id} {model.dimensions ? `(${model.dimensions} dims)` : ''}
                         </option>
                       ))}
                     </select>
                   </div>
                 ) : (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">Embedding Model</label>
-                    <select
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300"
-                      value={settings.embedModel}
-                      onChange={e => {
-                        const model = e.target.value
-                        updateSetting('embedModel', model)
+                  <Input
+                    label="Embedding Model"
+                    value={settings.embedModel || ''}
+                    onChange={e => updateSetting('embedModel', e.target.value)}
+                    onBlur={e => {
+                      const model = e.target.value
+                      if (model) {
                         updateSetting('vectorDim', getVectorDimForModel(model))
-                      }}
-                    >
-                      <option value="text-embedding-3-small">text-embedding-3-small (1536 dims)</option>
-                      <option value="text-embedding-3-large">text-embedding-3-large (3072 dims)</option>
-                      <option value="text-embedding-ada-002">text-embedding-ada-002 (1536 dims)</option>
-                    </select>
-                  </div>
+                      }
+                    }}
+                    placeholder="openai/text-embedding-3-small"
+                    hint="Click 'Fetch Models' to see available options, or type a model name"
+                  />
                 )}
               </div>
               <Button
@@ -584,7 +769,7 @@ export default function SettingsPage() {
               <strong>Vector Dimensions:</strong> {settings.vectorDim}
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Auto-detected from embedding model. Change only if using a custom model with different dimensions.
+              Auto-detected from embedding model. Change below if using a custom model with different dimensions.
             </p>
           </div>
           <Input
@@ -613,6 +798,177 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      {/* Qdrant Console */}
+      <Card title="Qdrant Console" description="View and manage your Qdrant vector database">
+        <div className="space-y-4">
+          <div className="flex gap-2 items-center">
+            <Button
+              variant="secondary"
+              onClick={fetchQdrantInfo}
+              loading={loadingQdrant}
+            >
+              <Database size={16} />
+              Connect to Qdrant
+            </Button>
+            <a
+              href={settings.qdrantUrl ? `${settings.qdrantUrl}/dashboard` : '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1"
+            >
+              <ExternalLink size={14} />
+              Open Qdrant Dashboard
+            </a>
+          </div>
+
+          {qdrantInfo && (
+            <div className="bg-slate-50 p-4 rounded-lg space-y-3">
+              <div>
+                <h4 className="text-sm font-medium text-slate-700 mb-2">Cluster Info</h4>
+                <pre className="text-xs bg-slate-900 text-green-400 p-3 rounded overflow-x-auto">
+                  {JSON.stringify(qdrantInfo, null, 2)}
+                </pre>
+              </div>
+
+              {qdrantCollections.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium text-slate-700 mb-2">Collections ({qdrantCollections.length})</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {qdrantCollections.map(col => (
+                      <span
+                        key={col}
+                        className={`px-3 py-1 rounded-full text-sm ${
+                          col === settings.qdrantCollection
+                            ? 'bg-primary-100 text-primary-700 font-medium'
+                            : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {col}
+                        {col === settings.qdrantCollection && ' (active)'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* API Request Console */}
+      <Card title="API Request Console" description="Test API endpoints and view request logs">
+        <div className="space-y-4">
+          <div className="flex gap-2 items-end">
+            <div className="w-28">
+              <label className="block text-sm font-medium text-slate-700 mb-2">Method</label>
+              <select
+                className="w-full px-3 py-2 rounded-lg border border-slate-300"
+                value={apiMethod}
+                onChange={e => setApiMethod(e.target.value as any)}
+              >
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+            </div>
+            <div className="flex-1">
+              <Input
+                label="Endpoint"
+                value={apiEndpoint}
+                onChange={e => setApiEndpoint(e.target.value)}
+                placeholder="/api/health"
+              />
+            </div>
+            <Button onClick={executeApiRequest} loading={apiLoading}>
+              <Send size={16} />
+              Send
+            </Button>
+          </div>
+
+          {(apiMethod === 'POST' || apiMethod === 'PUT') && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Request Body (JSON)</label>
+              <textarea
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg h-24 font-mono text-sm"
+                value={apiBody}
+                onChange={e => setApiBody(e.target.value)}
+                placeholder='{"key": "value"}'
+              />
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium text-slate-700">Request Log</h4>
+            <Button variant="ghost" size="sm" onClick={clearApiLogs} disabled={apiLogs.length === 0}>
+              <Trash2 size={14} />
+              Clear
+            </Button>
+          </div>
+
+          <div
+            ref={apiLogsRef}
+            className="bg-slate-900 rounded-lg p-3 h-64 overflow-y-auto space-y-2"
+          >
+            {apiLogs.length === 0 ? (
+              <p className="text-slate-500 text-sm text-center py-8">No requests yet. Send a request to see logs.</p>
+            ) : (
+              apiLogs.map(log => (
+                <div key={log.id} className="border-b border-slate-700 pb-2 last:border-0">
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className={`font-mono font-bold ${
+                      log.method === 'GET' ? 'text-green-400' :
+                      log.method === 'POST' ? 'text-blue-400' :
+                      log.method === 'PUT' ? 'text-yellow-400' :
+                      'text-red-400'
+                    }`}>
+                      {log.method}
+                    </span>
+                    <span className="text-slate-300 font-mono">{log.url}</span>
+                    {log.status && (
+                      <span className={`px-1.5 py-0.5 rounded text-xs ${
+                        log.status < 300 ? 'bg-green-900 text-green-300' :
+                        log.status < 400 ? 'bg-yellow-900 text-yellow-300' :
+                        'bg-red-900 text-red-300'
+                      }`}>
+                        {log.status}
+                      </span>
+                    )}
+                    {log.duration && (
+                      <span className="text-slate-500">{log.duration}ms</span>
+                    )}
+                    <span className="text-slate-600 ml-auto">
+                      {log.timestamp.toLocaleTimeString()}
+                    </span>
+                  </div>
+                  {log.error && (
+                    <pre className="text-red-400 text-xs mt-1 font-mono">{log.error}</pre>
+                  )}
+                  {log.response && (
+                    <details className="mt-1">
+                      <summary className="text-slate-400 text-xs cursor-pointer hover:text-slate-300">
+                        Response
+                      </summary>
+                      <pre className="text-green-400 text-xs mt-1 font-mono overflow-x-auto max-h-32 overflow-y-auto">
+                        {typeof log.response === 'string' ? log.response : JSON.stringify(log.response, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="text-xs text-slate-500">
+            <strong>Quick endpoints:</strong>{' '}
+            <button onClick={() => setApiEndpoint('/api/health')} className="text-primary-600 hover:underline">/api/health</button>{' · '}
+            <button onClick={() => setApiEndpoint('/api/settings')} className="text-primary-600 hover:underline">/api/settings</button>{' · '}
+            <button onClick={() => setApiEndpoint('/api/documents')} className="text-primary-600 hover:underline">/api/documents</button>{' · '}
+            <button onClick={() => setApiEndpoint('/api/documents/stats')} className="text-primary-600 hover:underline">/api/documents/stats</button>
+          </div>
+        </div>
+      </Card>
+
       {/* RAG Settings */}
       <Card title="RAG Configuration" description="Retrieval and chunking settings">
         <div className="grid grid-cols-3 gap-4">
@@ -628,24 +984,68 @@ export default function SettingsPage() {
             value={settings.retrievalTopK}
             onChange={e => updateSetting('retrievalTopK', parseInt(e.target.value))}
           />
-          <Input
-            label="Chunk Target Tokens"
-            type="number"
-            value={settings.chunkTargetTokens}
-            onChange={e => updateSetting('chunkTargetTokens', parseInt(e.target.value))}
-          />
+          <div></div>
           <Input
             label="Chunk Max Tokens"
             type="number"
             value={settings.chunkMaxTokens}
             onChange={e => updateSetting('chunkMaxTokens', parseInt(e.target.value))}
+            hint="Soft limit for chunking (default: 800)"
           />
           <Input
             label="Chunk Overlap Tokens"
             type="number"
             value={settings.chunkOverlapTokens}
             onChange={e => updateSetting('chunkOverlapTokens', parseInt(e.target.value))}
+            hint="Token overlap between chunks (default: 120)"
           />
+          <Input
+            label="Absolute Max Tokens"
+            type="number"
+            value={settings.absoluteMaxTokens}
+            onChange={e => updateSetting('absoluteMaxTokens', parseInt(e.target.value))}
+            hint="Hard limit - never exceed (default: 1024)"
+          />
+        </div>
+        
+        <div className="mt-4 pt-4 border-t border-slate-200">
+          <h4 className="text-sm font-medium text-slate-700 mb-3">Pipeline Threading</h4>
+          <div className="grid grid-cols-3 gap-4">
+            <Input
+              label="Embedding Threads"
+              type="number"
+              value={settings.embeddingThreads}
+              onChange={e => updateSetting('embeddingThreads', parseInt(e.target.value))}
+              hint="Concurrent embedding workers (default: 4)"
+            />
+            <Input
+              label="Upsert Threads"
+              type="number"
+              value={settings.upsertThreads}
+              onChange={e => updateSetting('upsertThreads', parseInt(e.target.value))}
+              hint="Concurrent upsert workers (default: 2)"
+            />
+            <div className="flex items-center gap-2 pt-6">
+              <input
+                type="checkbox"
+                id="failFastValidation"
+                checked={settings.failFastValidation}
+                onChange={e => updateSetting('failFastValidation', e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              <label htmlFor="failFastValidation" className="text-sm text-slate-700">
+                Fail-fast validation
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <div className="mt-4 p-3 bg-slate-50 rounded-lg">
+          <p className="text-xs text-slate-600">
+            <strong>Note:</strong> Chunks are created respecting Markdown structure - headings are preserved and code blocks are never split.
+            Each chunk is embedded individually (one API call per chunk) for maximum reliability.
+            The pipeline is resumable - if interrupted, it will continue from the last successful chunk.
+          </p>
         </div>
       </Card>
 

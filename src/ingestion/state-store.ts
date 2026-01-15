@@ -5,7 +5,14 @@ import { logger } from '../config/index.js';
 
 const STATE_DB_PATH = process.env.STATE_DB_PATH || './data/ingestion-state.db';
 
+// Batched write configuration
+const BATCH_INTERVAL_MS = 3000; // Flush every 3 seconds
+const BATCH_SIZE_THRESHOLD = 20; // Or after 20 updates
+
 let db: Database | null = null;
+let pendingWrites = 0;
+let flushTimer: NodeJS.Timeout | null = null;
+let writePromise: Promise<void> | null = null;
 
 async function ensureDataDir(): Promise<void> {
   const dir = path.dirname(STATE_DB_PATH);
@@ -25,13 +32,85 @@ async function loadDatabase(): Promise<Database> {
   }
 }
 
-async function saveDatabase(): Promise<void> {
+/**
+ * Internal: Actually write database to disk.
+ */
+async function writeDatabaseToDisk(): Promise<void> {
   if (!db) return;
   
   const data = db.export();
   const buffer = Buffer.from(data);
   await ensureDataDir();
-  await fs.writeFile(STATE_DB_PATH, buffer);
+  
+  // Atomic write with temp file
+  const tempFile = STATE_DB_PATH + '.tmp';
+  await fs.writeFile(tempFile, buffer);
+  await fs.rename(tempFile, STATE_DB_PATH);
+}
+
+/**
+ * Schedule a batched write. Non-blocking.
+ */
+function scheduleBatchedWrite(): void {
+  pendingWrites++;
+  
+  // Flush immediately if threshold reached
+  if (pendingWrites >= BATCH_SIZE_THRESHOLD) {
+    flushStateStoreSync();
+    return;
+  }
+  
+  // Schedule timer-based flush if not already scheduled
+  if (!flushTimer) {
+    flushTimer = setTimeout(() => {
+      flushStateStoreSync();
+    }, BATCH_INTERVAL_MS);
+  }
+}
+
+/**
+ * Synchronously trigger a flush (non-blocking, returns immediately).
+ */
+function flushStateStoreSync(): void {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  
+  if (pendingWrites === 0) return;
+  
+  pendingWrites = 0;
+  
+  // Fire and forget, but track promise for final flush
+  writePromise = writeDatabaseToDisk().catch(err => {
+    logger.error({ error: err }, 'Failed to write state database');
+  });
+}
+
+/**
+ * Flush any pending state writes. Awaitable.
+ */
+export async function flushStateStore(): Promise<void> {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  
+  if (pendingWrites > 0 || writePromise) {
+    pendingWrites = 0;
+    await writeDatabaseToDisk();
+    if (writePromise) {
+      await writePromise;
+      writePromise = null;
+    }
+  }
+}
+
+/**
+ * Save database immediately (legacy).
+ */
+async function saveDatabase(): Promise<void> {
+  await writeDatabaseToDisk();
 }
 
 export async function initStateStore(): Promise<void> {
@@ -113,7 +192,10 @@ export async function getAllFileStates(): Promise<FileState[]> {
   }));
 }
 
-export async function updateFileState(
+/**
+ * Update file state with batched persistence.
+ */
+export async function updateFileStateBatched(
   filePath: string,
   contentHash: string,
   chunkIds: string[]
@@ -135,7 +217,19 @@ export async function updateFileState(
     );
   }
   
-  await saveDatabase();
+  scheduleBatchedWrite();
+}
+
+/**
+ * Update file state with immediate persistence (legacy).
+ */
+export async function updateFileState(
+  filePath: string,
+  contentHash: string,
+  chunkIds: string[]
+): Promise<void> {
+  await updateFileStateBatched(filePath, contentHash, chunkIds);
+  await flushStateStore();
 }
 
 export async function getChunkIdsForFile(filePath: string): Promise<string[]> {
@@ -160,12 +254,20 @@ export async function deleteFileState(filePath: string): Promise<string[]> {
   
   db!.run(`DELETE FROM ingested_files WHERE file_path = ?`, [filePath]);
   
-  await saveDatabase();
+  scheduleBatchedWrite();
   return chunkIds;
 }
 
 export async function clearAllState(): Promise<void> {
   if (!db) await initStateStore();
+  
+  // Clear any pending writes
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  pendingWrites = 0;
+  writePromise = null;
   
   db!.run(`DELETE FROM chunk_ids`);
   db!.run(`DELETE FROM ingested_files`);
@@ -175,8 +277,10 @@ export async function clearAllState(): Promise<void> {
 }
 
 export async function closeStateStore(): Promise<void> {
+  // Flush any pending writes first
+  await flushStateStore();
+  
   if (db) {
-    await saveDatabase();
     db.close();
     db = null;
   }

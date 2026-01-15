@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { FileText, Upload, Trash2, RefreshCw, CheckCircle, Clock, FolderOpen } from 'lucide-react'
+import { FileText, Upload, Trash2, RefreshCw, CheckCircle, Clock, FolderOpen, X } from 'lucide-react'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
+import Input from '@/components/Input'
 import { useToast } from '@/components/Toast'
 import { formatBytes, formatDate } from '@/lib/utils'
 
@@ -22,6 +23,13 @@ interface IngestionStatus {
   lastIngested: string | null
 }
 
+interface ConsoleLog {
+  id: string
+  timestamp: Date
+  level: 'info' | 'warn' | 'error' | 'success'
+  message: string
+}
+
 export default function Documents() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [docsPath, setDocsPath] = useState('')
@@ -29,7 +37,52 @@ export default function Documents() {
   const [loading, setLoading] = useState(true)
   const [ingesting, setIngesting] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [maxChunksPerBatch, setMaxChunksPerBatch] = useState('500')
+  const [usePartialIngestion, setUsePartialIngestion] = useState(false)
+  const [consoleLogs, setConsoleLogs] = useState<ConsoleLog[]>([])
+  const [showConsole, setShowConsole] = useState(false)
+  const [ingestionProgress, setIngestionProgress] = useState({ current: 0, total: 0 })
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set())
+  const consoleEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
+
+  const toggleDocSelection = (path: string) => {
+    setSelectedDocs(prev => {
+      const next = new Set(prev)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+      }
+      return next
+    })
+  }
+
+  const selectAllDocs = () => {
+    if (selectedDocs.size === documents.length) {
+      setSelectedDocs(new Set())
+    } else {
+      setSelectedDocs(new Set(documents.map(d => d.relativePath)))
+    }
+  }
+
+  const addConsoleLog = (level: ConsoleLog['level'], message: string) => {
+    const log: ConsoleLog = {
+      id: crypto.randomUUID(),
+      timestamp: new Date(),
+      level,
+      message,
+    }
+    setConsoleLogs(prev => [...prev, log])
+  }
+
+  const clearConsole = () => {
+    setConsoleLogs([])
+  }
+
+  useEffect(() => {
+    consoleEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [consoleLogs])
 
   const fetchDocuments = async () => {
     try {
@@ -88,14 +141,26 @@ export default function Documents() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: {
-      'application/zip': ['.zip'],
-      'text/markdown': ['.md', '.mdx'],
-    },
+    // Accept any file type - backend will handle it
   })
 
   const handleIngest = async (full: boolean) => {
     setIngesting(true)
+    clearConsole()
+    setShowConsole(true)
+    
+    if (usePartialIngestion && full) {
+      addConsoleLog('info', `Starting partial full ingestion with max chunks per batch: ${maxChunksPerBatch}`)
+      await handlePartialIngest()
+    } else {
+      addConsoleLog('info', `Starting ${full ? 'full' : 'incremental'} ingestion (one chunk at a time)`)
+      await handleSingleIngest(full)
+    }
+    
+    setIngesting(false)
+  }
+
+  const handleSingleIngest = async (full: boolean) => {
     try {
       const res = await fetch('/api/documents/ingest', {
         method: 'POST',
@@ -105,14 +170,143 @@ export default function Documents() {
       const data = await res.json()
 
       if (data.success) {
+        addConsoleLog('success', `✓ Ingestion complete`)
+        addConsoleLog('info', `Files updated: ${data.result.filesUpdated}`)
+        addConsoleLog('info', `Chunks upserted: ${data.result.chunksUpserted}`)
+        if (data.result.filesDeleted > 0) {
+          addConsoleLog('info', `Files deleted: ${data.result.filesDeleted}`)
+        }
+        if (data.result.chunksDeleted > 0) {
+          addConsoleLog('info', `Chunks deleted: ${data.result.chunksDeleted}`)
+        }
+        if (data.result.errors.length > 0) {
+          addConsoleLog('warn', `Errors encountered: ${data.result.errors.length}`)
+          data.result.errors.forEach((err: string) => {
+            addConsoleLog('error', err)
+          })
+        }
         toast('success', `Indexed ${data.result.filesUpdated} files, ${data.result.chunksUpserted} chunks`)
         fetchDocuments()
         fetchIngestionStatus()
       } else {
-        toast('error', data.error || 'Ingestion failed')
+        addConsoleLog('error', `Ingestion failed: ${data.message || data.error || 'Unknown error'}`)
+        toast('error', data.message || data.error || 'Ingestion failed')
       }
     } catch (error) {
-      toast('error', 'Ingestion failed')
+      addConsoleLog('error', `Ingestion failed - ${String(error)}`)
+      toast('error', 'Ingestion failed - check server logs')
+    }
+  }
+
+  const handlePartialIngest = async () => {
+    let startIndex = 0
+    let totalChunksProcessed = 0
+    let totalChunksUpserted = 0
+    let totalFilesUpdated = 0
+    const maxChunks = parseInt(maxChunksPerBatch)
+
+    try {
+      while (true) {
+        addConsoleLog('info', `Processing batch starting at chunk ${startIndex}...`)
+        
+        const res = await fetch('/api/documents/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            full: true,
+            partial: true,
+            maxChunksPerBatch: maxChunks,
+            startIndex,
+          }),
+        })
+        const data = await res.json()
+
+        if (!data.success) {
+          addConsoleLog('error', `Batch failed: ${data.message || data.error || 'Unknown error'}`)
+          toast('error', data.message || data.error || 'Batch ingestion failed')
+          break
+        }
+
+        const result = data.result
+        totalChunksProcessed = result.processedChunks
+        totalChunksUpserted += result.chunksUpserted
+        totalFilesUpdated += result.filesUpdated
+        
+        setIngestionProgress({ current: totalChunksProcessed, total: 0 })
+
+        addConsoleLog('success', `✓ Batch complete: ${result.chunksUpserted} chunks upserted, ${result.filesUpdated} files updated`)
+        
+        if (result.errors.length > 0) {
+          addConsoleLog('warn', `Batch errors: ${result.errors.length}`)
+          result.errors.forEach((err: string) => {
+            addConsoleLog('error', err)
+          })
+        }
+
+        if (!result.hasMore) {
+          addConsoleLog('success', `✓ All batches complete!`)
+          addConsoleLog('info', `Total chunks upserted: ${totalChunksUpserted}`)
+          addConsoleLog('info', `Total files updated: ${totalFilesUpdated}`)
+          toast('success', `Indexed ${totalFilesUpdated} files, ${totalChunksUpserted} chunks`)
+          fetchDocuments()
+          fetchIngestionStatus()
+          break
+        }
+
+        startIndex = result.nextStartIndex
+        addConsoleLog('info', `Continuing with next batch...`)
+      }
+    } catch (error) {
+      addConsoleLog('error', `Partial ingestion failed - ${String(error)}`)
+      toast('error', 'Partial ingestion failed - check server logs')
+    }
+  }
+
+  const handleSelectedIngest = async () => {
+    if (selectedDocs.size === 0) {
+      toast('error', 'No documents selected')
+      return
+    }
+
+    setIngesting(true)
+    clearConsole()
+    setShowConsole(true)
+    addConsoleLog('info', `Starting selective ingestion for ${selectedDocs.size} file(s)`)
+
+    try {
+      const res = await fetch('/api/documents/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selectedFiles: Array.from(selectedDocs),
+        }),
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        addConsoleLog('success', `✓ Selective ingestion complete`)
+        addConsoleLog('info', `Files updated: ${data.result.filesUpdated}`)
+        addConsoleLog('info', `Chunks upserted: ${data.result.chunksUpserted}`)
+        if (data.result.chunksDeleted > 0) {
+          addConsoleLog('info', `Old chunks replaced: ${data.result.chunksDeleted}`)
+        }
+        if (data.result.errors.length > 0) {
+          addConsoleLog('warn', `Errors encountered: ${data.result.errors.length}`)
+          data.result.errors.forEach((err: string) => {
+            addConsoleLog('error', err)
+          })
+        }
+        toast('success', `Indexed ${data.result.filesUpdated} files, ${data.result.chunksUpserted} chunks`)
+        setSelectedDocs(new Set())
+        fetchDocuments()
+        fetchIngestionStatus()
+      } else {
+        addConsoleLog('error', `Ingestion failed: ${data.message || data.error || 'Unknown error'}`)
+        toast('error', data.message || data.error || 'Ingestion failed')
+      }
+    } catch (error) {
+      addConsoleLog('error', `Ingestion failed - ${String(error)}`)
+      toast('error', 'Ingestion failed - check server logs')
     } finally {
       setIngesting(false)
     }
@@ -142,6 +336,12 @@ export default function Documents() {
           <p className="text-slate-500">Manage your documentation files</p>
         </div>
         <div className="flex gap-2">
+          {selectedDocs.size > 0 && (
+            <Button variant="primary" onClick={handleSelectedIngest} loading={ingesting}>
+              <RefreshCw size={16} />
+              Index Selected ({selectedDocs.size})
+            </Button>
+          )}
           <Button variant="secondary" onClick={() => handleIngest(false)} loading={ingesting}>
             <RefreshCw size={16} />
             Incremental Index
@@ -192,6 +392,72 @@ export default function Documents() {
         </Card>
       </div>
 
+      {/* Ingestion Settings */}
+      <Card title="Ingestion Settings" description="Configure chunking and ingestion behavior">
+        <div className="space-y-4">
+          <div className="bg-blue-50 p-3 rounded-lg">
+            <p className="text-sm text-blue-800">
+              <strong>Production Mode:</strong> Each chunk is embedded individually and immediately upserted to the vector database. 
+              Progress is saved after each chunk, allowing resumption if interrupted.
+            </p>
+          </div>
+
+          <div className="border-t border-slate-200 pt-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={usePartialIngestion}
+                onChange={(e) => setUsePartialIngestion(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300"
+              />
+              <span className="text-sm font-medium text-slate-700">
+                Use Partial Ingestion (for large datasets)
+              </span>
+            </label>
+            <p className="text-xs text-slate-500 mt-2">
+              Process documents in multiple batches to avoid memory issues. Useful for large documentation sets.
+            </p>
+
+            {usePartialIngestion && (
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Max Chunks Per Batch
+                </label>
+                <Input
+                  type="number"
+                  min="100"
+                  max="2000"
+                  value={maxChunksPerBatch}
+                  onChange={(e) => setMaxChunksPerBatch(e.target.value)}
+                  placeholder="500"
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Number of chunks to process in each batch. Lower values = more batches but safer.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {ingestionProgress.current > 0 && (
+            <div className="border-t border-slate-200 pt-4">
+              <p className="text-sm font-medium text-slate-700 mb-2">
+                Progress: {ingestionProgress.current} chunks processed
+              </p>
+              <div className="w-full bg-slate-200 rounded-full h-2">
+                <div
+                  className="bg-primary-600 h-2 rounded-full transition-all"
+                  style={{
+                    width: ingestionProgress.total > 0 
+                      ? `${(ingestionProgress.current / ingestionProgress.total) * 100}%`
+                      : '0%'
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* Upload Zone */}
       <Card title="Upload Documents" description="Upload markdown files or a zip archive">
         <div
@@ -209,20 +475,74 @@ export default function Documents() {
           ) : (
             <>
               <p className="text-slate-600 mb-1">Drag & drop files here, or click to select</p>
-              <p className="text-sm text-slate-400">Supports .md, .mdx, and .zip files</p>
+              <p className="text-sm text-slate-400">Supports any text file or .zip archive</p>
             </>
           )}
         </div>
       </Card>
+
+      {/* Ingestion Console */}
+      {showConsole && (
+        <Card
+          title="Ingestion Console"
+          description="Real-time ingestion progress and logs"
+          actions={
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={clearConsole}>
+                Clear
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowConsole(false)}>
+                <X size={14} />
+              </Button>
+            </div>
+          }
+        >
+          <div className="bg-slate-900 text-slate-100 rounded-lg p-4 font-mono text-sm max-h-96 overflow-y-auto">
+            {consoleLogs.length === 0 ? (
+              <p className="text-slate-500">Waiting for logs...</p>
+            ) : (
+              consoleLogs.map(log => (
+                <div key={log.id} className="mb-1 flex gap-2">
+                  <span className="text-slate-500 flex-shrink-0">
+                    {log.timestamp.toLocaleTimeString()}
+                  </span>
+                  <span
+                    className={`flex-shrink-0 font-semibold ${
+                      log.level === 'error'
+                        ? 'text-red-400'
+                        : log.level === 'warn'
+                          ? 'text-yellow-400'
+                          : log.level === 'success'
+                            ? 'text-green-400'
+                            : 'text-blue-400'
+                    }`}
+                  >
+                    [{log.level.toUpperCase()}]
+                  </span>
+                  <span className="text-slate-100">{log.message}</span>
+                </div>
+              ))
+            )}
+            <div ref={consoleEndRef} />
+          </div>
+        </Card>
+      )}
 
       {/* Documents List */}
       <Card
         title="Document Files"
         description={`Located in: ${docsPath}`}
         actions={
-          <Button variant="ghost" size="sm" onClick={fetchDocuments}>
-            <RefreshCw size={14} />
-          </Button>
+          <div className="flex gap-2">
+            {documents.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={selectAllDocs}>
+                {selectedDocs.size === documents.length ? 'Deselect All' : 'Select All'}
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={fetchDocuments}>
+              <RefreshCw size={14} />
+            </Button>
+          </div>
         }
       >
         {loading ? (
@@ -238,6 +558,12 @@ export default function Documents() {
             {documents.map(doc => (
               <div key={doc.relativePath} className="flex items-center justify-between py-3">
                 <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedDocs.has(doc.relativePath)}
+                    onChange={() => toggleDocSelection(doc.relativePath)}
+                    className="w-4 h-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                  />
                   <FileText className="text-slate-400" size={20} />
                   <div>
                     <p className="font-medium text-slate-900">{doc.name}</p>

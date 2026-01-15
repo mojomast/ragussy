@@ -26,10 +26,13 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([])
   const [customLlmUrl, setCustomLlmUrl] = useState('')
   const [customEmbedUrl, setCustomEmbedUrl] = useState('')
+  const [customEmbedModel, setCustomEmbedModel] = useState('')
+  const [customEmbedDim, setCustomEmbedDim] = useState('1536')
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [availableEmbedModels, setAvailableEmbedModels] = useState<string[]>([])
   const [fetchingModels, setFetchingModels] = useState(false)
   const [fetchingEmbedModels, setFetchingEmbedModels] = useState(false)
+  const [testingEmbedModel, setTestingEmbedModel] = useState(false)
   const [config, setConfig] = useState({
     projectName: 'My Documentation',
     publicDocsBaseUrl: 'https://docs.example.com',
@@ -140,6 +143,43 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       setTestResults(prev => ({ ...prev, [type]: data.valid }))
     } catch {
       setTestResults(prev => ({ ...prev, [type]: false }))
+    }
+  }
+
+  const testEmbeddingModel = async () => {
+    if (!customEmbedModel || !config.embedApiKey) return
+
+    setTestingEmbedModel(true)
+    try {
+      const baseUrl = !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.embedBaseUrl)
+        ? customEmbedUrl || config.embedBaseUrl
+        : config.embedBaseUrl
+
+      const response = await fetch(`${baseUrl}/embeddings`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.embedApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: customEmbedModel,
+          input: 'test',
+          encoding_format: 'float',
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        const observedDim = data.data[0]?.embedding?.length
+        setCustomEmbedDim(String(observedDim || 1536))
+        setTestResults(prev => ({ ...prev, embedModelTest: true }))
+      } else {
+        setTestResults(prev => ({ ...prev, embedModelTest: false }))
+      }
+    } catch {
+      setTestResults(prev => ({ ...prev, embedModelTest: false }))
+    } finally {
+      setTestingEmbedModel(false)
     }
   }
 
@@ -580,6 +620,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                       setCustomEmbedUrl('')
                     }
                     setAvailableEmbedModels([])
+                    setCustomEmbedModel('')
                   }}
                 >
                   <option value="https://api.openai.com/v1">OpenAI</option>
@@ -636,13 +677,16 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                         const model = e.target.value
                         updateConfig('embedModel', model)
                         updateConfig('vectorDim', getVectorDimForModel(model))
+                        setCustomEmbedModel('')
                       }}
                     >
+                      <option value="">Select a model...</option>
                       {availableEmbedModels.map(model => (
                         <option key={model} value={model}>
                           {model} ({getVectorDimForModel(model)} dims)
                         </option>
                       ))}
+                      <option value="__custom__">Custom model...</option>
                     </select>
                   ) : (
                     <select
@@ -652,11 +696,14 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                         const model = e.target.value
                         updateConfig('embedModel', model)
                         updateConfig('vectorDim', getVectorDimForModel(model))
+                        setCustomEmbedModel('')
                       }}
                     >
+                      <option value="">Select a model...</option>
                       <option value="text-embedding-3-small">text-embedding-3-small (1536 dims)</option>
                       <option value="text-embedding-3-large">text-embedding-3-large (3072 dims)</option>
                       <option value="text-embedding-ada-002">text-embedding-ada-002 (1536 dims)</option>
+                      <option value="__custom__">Custom model...</option>
                     </select>
                   )}
                 </div>
@@ -669,6 +716,56 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                   Fetch Models
                 </Button>
               </div>
+
+              {config.embedModel === '__custom__' && (
+                <div className="space-y-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div>
+                    <Input
+                      label="Custom Model Name"
+                      value={customEmbedModel}
+                      onChange={e => setCustomEmbedModel(e.target.value)}
+                      placeholder="e.g., voyage-large-2"
+                    />
+                  </div>
+                  <div>
+                    <Input
+                      label="Vector Dimensions"
+                      type="number"
+                      value={customEmbedDim}
+                      onChange={e => setCustomEmbedDim(e.target.value)}
+                      placeholder="1536"
+                    />
+                  </div>
+                  <Button
+                    onClick={testEmbeddingModel}
+                    loading={testingEmbedModel}
+                    disabled={!customEmbedModel || !config.embedApiKey}
+                    className="w-full"
+                  >
+                    Test Model
+                  </Button>
+                  {testResults.embedModelTest !== undefined && (
+                    <p className={testResults.embedModelTest ? 'text-green-600 text-sm' : 'text-red-600 text-sm'}>
+                      {testResults.embedModelTest 
+                        ? `✓ Model works! Detected ${customEmbedDim} dimensions` 
+                        : '✗ Model test failed'}
+                    </p>
+                  )}
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      updateConfig('embedModel', customEmbedModel)
+                      updateConfig('vectorDim', parseInt(customEmbedDim))
+                      setCustomEmbedModel('')
+                    }}
+                    disabled={!customEmbedModel || !testResults.embedModelTest}
+                    className="w-full"
+                  >
+                    Use This Model
+                  </Button>
+                </div>
+              )}
+
               <div className="bg-slate-50 p-3 rounded-lg">
                 <p className="text-sm text-slate-600">
                   <strong>Vector Dimensions:</strong> {config.vectorDim}

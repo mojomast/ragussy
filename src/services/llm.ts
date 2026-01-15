@@ -1,7 +1,63 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { env, logger, getSystemPrompt } from '../config/index.js';
+import fs from 'fs/promises';
+import path from 'path';
 
 let chatModel: ChatOpenAI | null = null;
+
+// Cache for dynamic env values with TTL
+let dynamicEnvCache: Record<string, string> | null = null;
+let dynamicEnvCacheTime = 0;
+const CACHE_TTL_MS = 5000; // 5 seconds
+
+/**
+ * Parse .env file to get current values (for settings that can change at runtime)
+ */
+async function parseEnvFile(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (dynamicEnvCache && (now - dynamicEnvCacheTime) < CACHE_TTL_MS) {
+    return dynamicEnvCache;
+  }
+
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    const content = await fs.readFile(envPath, 'utf-8');
+    const envVars: Record<string, string> = {};
+    
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      
+      const eqIndex = trimmed.indexOf('=');
+      if (eqIndex > 0) {
+        const key = trimmed.slice(0, eqIndex);
+        const value = trimmed.slice(eqIndex + 1);
+        envVars[key] = value;
+      }
+    }
+    
+    dynamicEnvCache = envVars;
+    dynamicEnvCacheTime = now;
+    return envVars;
+  } catch {
+    // Fall back to process.env
+    return {};
+  }
+}
+
+/**
+ * Get embedding configuration, reading fresh values from .env file
+ */
+async function getEmbedConfig() {
+  const fileEnv = await parseEnvFile();
+  
+  return {
+    baseUrl: fileEnv.EMBED_BASE_URL || env.EMBED_BASE_URL,
+    apiKey: fileEnv.EMBED_API_KEY || env.EMBED_API_KEY,
+    model: fileEnv.EMBED_MODEL || env.EMBED_MODEL,
+    vectorDim: parseInt(fileEnv.VECTOR_DIM || String(env.VECTOR_DIM)),
+  };
+}
 
 export function getChatModel(): ChatOpenAI {
   if (!chatModel) {
@@ -25,14 +81,23 @@ export async function embedText(text: string): Promise<number[]> {
 }
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
-  const response = await fetch(`${env.EMBED_BASE_URL}/embeddings`, {
+  // Get fresh config from .env file
+  const embedConfig = await getEmbedConfig();
+  
+  logger.debug({
+    baseUrl: embedConfig.baseUrl,
+    model: embedConfig.model,
+    vectorDim: embedConfig.vectorDim,
+  }, 'Using embedding configuration');
+
+  const response = await fetch(`${embedConfig.baseUrl}/embeddings`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${env.EMBED_API_KEY}`,
+      'Authorization': `Bearer ${embedConfig.apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: env.EMBED_MODEL,
+      model: embedConfig.model,
       input: texts,
       encoding_format: 'float',
     }),
@@ -40,20 +105,29 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    logger.error({ status: response.status, error: errorText }, 'Embedding API request failed');
+    logger.error({
+      status: response.status,
+      error: errorText,
+      model: embedConfig.model,
+      baseUrl: embedConfig.baseUrl,
+    }, 'Embedding API request failed');
     throw new Error(`Embedding API error: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
   const data = await response.json();
   const observedDim = data.data[0]?.embedding?.length;
   
-  logger.info({ model: env.EMBED_MODEL, count: texts.length, dimension: observedDim }, 'Embeddings generated');
+  logger.info({
+    model: embedConfig.model,
+    count: texts.length,
+    dimension: observedDim,
+  }, 'Embeddings generated');
 
   // Validate embedding dimension matches configuration
-  if (observedDim !== env.VECTOR_DIM) {
+  if (observedDim !== embedConfig.vectorDim) {
     throw new Error(
-      `Embedding dimension mismatch: observed ${observedDim}, expected ${env.VECTOR_DIM}. ` +
-      'Update VECTOR_DIM in your .env file to match your embedding model.'
+      `Embedding dimension mismatch: observed ${observedDim}, expected ${embedConfig.vectorDim}. ` +
+      `Update VECTOR_DIM in Settings to ${observedDim} to match your embedding model (${embedConfig.model}).`
     );
   }
 

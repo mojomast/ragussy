@@ -9,16 +9,24 @@ const router: Router = Router();
 
 // In-memory conversation store
 const conversations = new Map<string, ChatMessage[]>();
+// Store images per conversation for "load more" functionality
+const conversationImages = new Map<string, ImageResult[]>();
 
 const chatRequestSchema = z.object({
   message: z.string().min(1).max(20000),
-  conversationId: z.string().optional(),
+  conversationId: z.string().optional().nullable(),
 });
 
 interface Source {
   title: string;
   url: string;
   section: string;
+  relevance: number;
+}
+
+interface ImageResult {
+  url: string;
+  sourceTitle: string;
   relevance: number;
 }
 
@@ -50,8 +58,11 @@ router.use(apiKeyAuth);
 
 router.post('/', async (req: Request, res: Response) => {
   try {
+    logger.debug({ body: req.body }, 'Chat request received');
+    
     const validation = chatRequestSchema.safeParse(req.body);
     if (!validation.success) {
+      logger.warn({ errors: validation.error.issues, body: req.body }, 'Chat validation failed');
       return res.status(400).json({
         error: 'Invalid request',
         details: validation.error.issues,
@@ -71,6 +82,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     const sources: Source[] = [];
     const contextParts: string[] = [];
+    const allImages: ImageResult[] = [];
 
     for (const result of searchResults) {
       const payload = result.payload;
@@ -89,6 +101,18 @@ URL: ${url}
 
 ${payload.content || 'Content not available'}
 ---`);
+
+      // Collect images from search results
+      const images = payload.images as string[] | undefined;
+      if (images && Array.isArray(images)) {
+        for (const imgUrl of images) {
+          allImages.push({
+            url: imgUrl,
+            sourceTitle: payload.doc_title as string,
+            relevance: result.score,
+          });
+        }
+      }
     }
 
     const context = contextParts.join('\n\n');
@@ -111,11 +135,29 @@ ${payload.content || 'Content not available'}
       return acc;
     }, [] as Source[]);
 
-    logger.info({ conversationId, sourcesFound: uniqueSources.length }, 'Chat response generated');
+    // Deduplicate and sort images by relevance
+    const uniqueImages = allImages.reduce((acc, img) => {
+      if (!acc.some(i => i.url === img.url)) {
+        acc.push(img);
+      }
+      return acc;
+    }, [] as ImageResult[]);
+    uniqueImages.sort((a, b) => b.relevance - a.relevance);
+
+    // Store all images for "load more" pagination
+    conversationImages.set(conversationId, uniqueImages);
+
+    logger.info({ 
+      conversationId, 
+      sourcesFound: uniqueSources.length,
+      imagesFound: uniqueImages.length,
+    }, 'Chat response generated');
 
     return res.json({
       answer,
       sources: uniqueSources.slice(0, 5),
+      images: uniqueImages.slice(0, 5),  // Return top 5 most relevant images
+      totalImages: uniqueImages.length,   // Total available for "load more"
       conversationId,
     });
   } catch (error) {
@@ -130,7 +172,23 @@ ${payload.content || 'Content not available'}
 router.delete('/:conversationId', (req: Request, res: Response) => {
   const { conversationId } = req.params;
   conversations.delete(conversationId);
+  conversationImages.delete(conversationId);  // Clean up images too
   return res.json({ success: true });
+});
+
+router.get('/:conversationId/images', (req: Request, res: Response) => {
+  const { conversationId } = req.params;
+  const offset = parseInt(req.query.offset as string) || 0;
+  const limit = parseInt(req.query.limit as string) || 5;
+  
+  const images = conversationImages.get(conversationId) || [];
+  const paginatedImages = images.slice(offset, offset + limit);
+  
+  return res.json({
+    images: paginatedImages,
+    total: images.length,
+    hasMore: offset + limit < images.length,
+  });
 });
 
 export default router;

@@ -125,6 +125,18 @@ ADMIN_TOKEN=your-admin-token
 
 After adding documents, click "Incremental Index" to process new/changed files, or "Full Reindex" to rebuild everything.
 
+#### Forum Mode
+
+For forum/discussion data, use the dedicated forum ingestion mode:
+
+```bash
+npm run ingest:forum              # Ingest from default docs path
+npm run ingest:forum ./forum-data # Ingest from specific directory
+npm run ingest:forum --config     # Show current configuration
+```
+
+Forum mode treats each post as the primary ingestion unit, preserving author attribution, timestamps, and thread context. See [Forum Ingestion](#forum-ingestion) for details.
+
 ### Chat
 
 1. Go to the Chat page
@@ -227,9 +239,10 @@ See [discord-bot/README.md](discord-bot/README.md) for full documentation.
 ```
 ragussy/
 ├── src/                    # Backend source
-│   ├── cli/               # CLI tools (setup, ingest)
+│   ├── cli/               # CLI tools (setup, ingest, ingest-forum)
 │   ├── config/            # Configuration
 │   ├── ingestion/         # Document processing
+│   │   └── forum/         # Forum ingestion mode
 │   ├── routes/            # API endpoints
 │   └── services/          # Qdrant & LLM
 ├── frontend/              # React frontend
@@ -272,8 +285,94 @@ npm run build
 | text-embedding-3-small | 1536 | Fast, good quality |
 | text-embedding-3-large | 3072 | Best quality |
 | text-embedding-ada-002 | 1536 | Legacy |
+| baai/bge-m3 | 1024 | Recommended for forum mode |
 
 The UI automatically sets the correct vector dimensions when you select a model.
+
+## Forum Ingestion
+
+Ragussy includes a dedicated forum ingestion mode optimized for threaded discussions and conversational retrieval.
+
+### Features
+
+- **Post-level chunking**: Each post is the primary ingestion unit (utterance model)
+- **Rich metadata**: Author, timestamp, thread context, mentions, images
+- **Deterministic IDs**: Safe retries and incremental ingestion
+- **Change detection**: Skip unchanged posts via fingerprint comparison
+- **Forum-aware retrieval**: Groups results by thread, surfaces multiple viewpoints
+
+### Input Format
+
+Forum data should be JSON files with this structure:
+
+```json
+{
+  "threadId": "12345",
+  "threadTitle": "Discussion Topic",
+  "forumCategory": "General",
+  "posts": [
+    {
+      "postId": "1",
+      "threadId": "12345",
+      "username": "user1",
+      "userId": "100",
+      "date": "2024-01-15T10:30:00.000Z",
+      "content": "Original post content (quotes removed)",
+      "contentFull": "Full content including quotes",
+      "quotedContent": [{ "user": "other", "text": "quoted text" }],
+      "images": ["https://..."],
+      "mentions": ["user2"],
+      "keywords": ["topic"],
+      "fingerprint": "hash-for-change-detection",
+      "isSubstantive": true
+    }
+  ]
+}
+```
+
+### Usage
+
+```bash
+# Ingest forum data
+npm run ingest:forum ./path/to/forum-data
+
+# Show configuration
+npm run ingest:forum --config
+
+# Show example .env settings
+npm run ingest:forum --env-example
+```
+
+### Configuration
+
+Add to your `.env` file:
+
+```env
+# Enable forum mode
+FORUM_MODE=true
+
+# Ingestion settings
+FORUM_MAX_TOKENS=800
+FORUM_EMBEDDING_MODEL=baai/bge-m3
+FORUM_EMBED_QUOTED_CONTENT=false
+FORUM_EMBEDDING_THREADS=6
+FORUM_SKIP_UNCHANGED=true
+
+# Retrieval settings
+FORUM_GROUP_BY_THREAD=true
+FORUM_TIME_DECAY=false
+FORUM_MAX_POSTS_PER_THREAD=10
+FORUM_RETRIEVAL_COUNT=30
+```
+
+### Retrieval Behavior
+
+Forum retrieval assumes:
+- Posts may disagree with each other
+- Advice may change over time
+- No single post is authoritative
+
+Results are grouped by thread and include user attribution and timestamps. The system says "users discussed" rather than "the forum states".
 
 ## Troubleshooting
 

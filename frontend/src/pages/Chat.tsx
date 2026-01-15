@@ -1,8 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, ExternalLink, Loader2 } from 'lucide-react'
+import { Send, Bot, User, ExternalLink, Loader2, Image as ImageIcon, ChevronDown } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import Button from '@/components/Button'
 import { cn } from '@/lib/utils'
+
+interface ImageData {
+  url: string
+  sourceTitle: string
+  relevance: number
+}
 
 interface Message {
   role: 'user' | 'assistant'
@@ -12,6 +18,8 @@ interface Message {
     url: string
     section: string
   }>
+  images?: ImageData[]
+  totalImages?: number
 }
 
 export default function Chat() {
@@ -20,16 +28,29 @@ export default function Chat() {
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [apiKey, setApiKey] = useState('')
+  const [apiKeyLoading, setApiKeyLoading] = useState(true)
+  const [loadingMoreImages, setLoadingMoreImages] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // Get API key from settings
-    fetch('/api/settings')
+    // Get actual API key from settings for internal UI use
+    fetch('/api/settings/actual-keys')
       .then(res => res.json())
-      .then(() => {
-        // We need the actual key, not masked - for demo we'll use a simple approach
-        // In production, you'd want a session-based auth system
+      .then(data => {
+        // We need the chat API key, not the LLM key
       })
+      .catch(() => {})
+      .finally(() => setApiKeyLoading(false))
+    
+    // Also try to get the API key from settings
+    fetch('/api/settings/chat-api-key')
+      .then(res => res.json())
+      .then(data => {
+        if (data.apiKey) {
+          setApiKey(data.apiKey)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -58,7 +79,9 @@ export default function Chat() {
       })
 
       if (!res.ok) {
-        throw new Error('Failed to get response')
+        const errorData = await res.json().catch(() => ({}))
+        console.error('Chat error:', res.status, errorData)
+        throw new Error(errorData.message || errorData.error || 'Failed to get response')
       }
 
       const data = await res.json()
@@ -69,6 +92,8 @@ export default function Chat() {
           role: 'assistant',
           content: data.answer,
           sources: data.sources,
+          images: data.images,
+          totalImages: data.totalImages,
         },
       ])
     } catch (error) {
@@ -88,6 +113,40 @@ export default function Chat() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       sendMessage()
+    }
+  }
+
+  const loadMoreImages = async (messageIndex: number) => {
+    if (!conversationId || loadingMoreImages !== null) return
+    
+    const message = messages[messageIndex]
+    if (!message.images || !message.totalImages) return
+    
+    setLoadingMoreImages(messageIndex)
+    
+    try {
+      const res = await fetch(`/api/chat/${conversationId}/images?offset=${message.images.length}&limit=5`, {
+        headers: {
+          'x-api-key': apiKey || 'demo',
+        },
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        setMessages(prev => prev.map((msg, idx) => {
+          if (idx === messageIndex && msg.images) {
+            return {
+              ...msg,
+              images: [...msg.images, ...data.images],
+            }
+          }
+          return msg
+        }))
+      }
+    } catch (error) {
+      console.error('Failed to load more images:', error)
+    } finally {
+      setLoadingMoreImages(null)
     }
   }
 
@@ -168,6 +227,59 @@ export default function Chat() {
                       </a>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Images Section */}
+              {message.images && message.images.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-slate-200">
+                  <p className="text-xs font-medium text-slate-500 mb-2 flex items-center gap-1">
+                    <ImageIcon size={12} />
+                    Related Images ({message.images.length}{message.totalImages && message.totalImages > message.images.length ? ` of ${message.totalImages}` : ''}):
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {message.images.map((img, i) => (
+                      <a
+                        key={i}
+                        href={img.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block relative group"
+                      >
+                        <img
+                          src={img.url}
+                          alt={`From ${img.sourceTitle}`}
+                          className="w-full h-24 object-cover rounded-lg border border-slate-200 hover:border-primary-400 transition-colors"
+                          loading="lazy"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none'
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                          <ExternalLink size={16} className="text-white" />
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                  {message.totalImages && message.totalImages > (message.images?.length || 0) && (
+                    <button
+                      onClick={() => loadMoreImages(index)}
+                      disabled={loadingMoreImages === index}
+                      className="mt-2 w-full flex items-center justify-center gap-1 text-xs text-primary-600 hover:text-primary-700 py-1 rounded hover:bg-primary-50 transition-colors disabled:opacity-50"
+                    >
+                      {loadingMoreImages === index ? (
+                        <>
+                          <Loader2 size={12} className="animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown size={12} />
+                          Load more images ({message.totalImages - message.images.length} remaining)
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

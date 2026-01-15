@@ -14,6 +14,7 @@
     "start": "node --max-old-space-size=1024 dist/index.js",
     "ingest": "tsx src/cli/ingest.ts",
     "ingest:full": "tsx src/cli/ingest.ts --full",
+    "ingest:forum": "tsx src/cli/ingest-forum.ts",
     "install:all": "npm install && cd frontend && npm install",
     "lint": "eslint src --ext .ts",
     "check-types": "tsc --noEmit"

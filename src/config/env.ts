@@ -39,9 +39,14 @@ const envSchema = z.object({
   // RAG Configuration
   MAX_CONTEXT_TOKENS: z.string().default('4000').transform(Number),
   RETRIEVAL_TOP_K: z.string().default('6').transform(Number),
-  CHUNK_TARGET_TOKENS: z.string().default('500').transform(Number),
-  CHUNK_MAX_TOKENS: z.string().default('700').transform(Number),
-  CHUNK_OVERLAP_TOKENS: z.string().default('75').transform(Number),
+  CHUNK_TARGET_TOKENS: z.string().default('600').transform(Number),
+  CHUNK_MAX_TOKENS: z.string().default('800').transform(Number),
+  CHUNK_OVERLAP_TOKENS: z.string().default('120').transform(Number),
+  ABSOLUTE_MAX_TOKENS: z.string().default('1024').transform(Number),
+  EMBEDDING_THREADS: z.string().default('4').transform(Number),
+  UPSERT_THREADS: z.string().default('2').transform(Number),
+  FAIL_FAST_VALIDATION: z.string().default('false').transform(v => v === 'true'),
+  EMBED_BATCH_SIZE: z.string().default('50').transform(Number),
 
   // Security (optional during setup)
   API_KEY: z.string().default(''),

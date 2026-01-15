@@ -55,15 +55,23 @@ export async function ensureCollection(): Promise<void> {
         const info = await getCollectionInfo();
         const existingSize = (info?.config?.params?.vectors as any)?.size;
         if (existingSize && existingSize !== env.VECTOR_DIM) {
-          throw new Error(
-            `Existing collection '${collectionName}' has vector size ${existingSize}, but VECTOR_DIM is ${env.VECTOR_DIM}. ` +
-            'Either update VECTOR_DIM or run ingest:full to recreate the collection.'
+          // Don't block startup - just warn. User can fix via settings or run ingest:full
+          logger.warn(
+            { collection: collectionName, existingSize, configuredSize: env.VECTOR_DIM },
+            `Vector dimension mismatch! Collection has ${existingSize} dims but VECTOR_DIM is ${env.VECTOR_DIM}. ` +
+            'Update VECTOR_DIM in settings to match, or delete the collection to recreate it.'
           );
         }
         logger.debug({ collection: collectionName }, 'Collection already exists');
       }
       return; // Success, exit the retry loop
-    } catch (error) {
+    } catch (error: any) {
+      // Don't retry on dimension mismatch - that's a config issue, not a connection issue
+      if (error.message?.includes('vector size')) {
+        logger.warn({ error: error.message }, 'Vector dimension mismatch - server will start but indexing may fail');
+        return;
+      }
+      
       if (attempt < maxRetries) {
         logger.warn({ attempt, maxRetries, error: String(error) }, 'Qdrant not ready, retrying...');
         await new Promise(resolve => setTimeout(resolve, retryDelay));
