@@ -212,6 +212,41 @@ router.post('/ingest', async (req: Request, res: Response) => {
       });
     }
     
+    // Check if forum mode is enabled (read from .env file for hot-reload)
+    const envFile = await fs.readFile(path.join(process.cwd(), '.env'), 'utf-8').catch(() => '');
+    const forumModeMatch = envFile.match(/^FORUM_MODE=(.*)$/m);
+    const forumModeEnabled = forumModeMatch?.[1]?.trim() === 'true';
+    
+    if (forumModeEnabled) {
+      logger.info('Forum mode enabled - using forum ingestion pipeline');
+      
+      // Import forum pipeline dynamically
+      const { runForumPipeline } = await import('../ingestion/forum/forum-pipeline.js');
+      const { getForumIngestionConfig } = await import('../ingestion/forum/forum-config.js');
+      
+      // Get forum config from .env
+      const forumConfig = await getForumIngestionConfig();
+      
+      // Run forum pipeline
+      const report = await runForumPipeline(forumConfig);
+      
+      return res.json({ 
+        success: true, 
+        result: {
+          filesUpdated: report.threadsProcessed,
+          chunksUpserted: report.chunksEmbedded,
+          filesDeleted: 0,
+          chunksDeleted: 0,
+          postsProcessed: report.postsProcessed,
+          postsSkipped: report.postsSkipped,
+          errors: report.failedPosts.map(f => `${f.threadId}/${f.postId}: ${f.reason}`),
+          forumMode: true,
+          diagnostics: report.diagnostics,
+        }
+      });
+    }
+    
+    // Standard document ingestion
     // Log what we're doing
     if (selectedFiles && Array.isArray(selectedFiles) && selectedFiles.length > 0) {
       logger.info({ files: selectedFiles, count: selectedFiles.length }, 'Starting selective ingestion');
