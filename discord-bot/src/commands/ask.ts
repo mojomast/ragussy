@@ -9,9 +9,7 @@ import {
 } from 'discord.js';
 import { env, logger } from '../config/index.js';
 import { ragApi, type Source, type ImageResult } from '../services/index.js';
-
-// Store conversation IDs per channel for context
-const channelConversations = new Map<string, string>();
+import { channelConversations } from '../state.js';
 
 // Store last response images for "more images" button
 const lastResponseImages = new Map<string, { conversationId: string; shown: number; total: number }>();

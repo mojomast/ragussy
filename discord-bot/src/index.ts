@@ -16,9 +16,9 @@ import { commands } from './commands/index.js';
 import { ragApi, type Source, type ImageResult } from './services/index.js';
 import { lastResponseImages } from './commands/ask.js';
 import { imageSearchResults } from './commands/images.js';
+import { channelConversations } from './state.js';
 
 const userCooldowns = new Map<string, number>();
-const channelConversations = new Map<string, string>();
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
