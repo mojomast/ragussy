@@ -90,9 +90,11 @@ function getUrlPath(relativePath: string): string {
   return urlPath;
 }
 
+const imgRegex = /!\[.*?\]\((https?:\/\/[^)]+)\)/g;
+
 function extractImagesFromMarkdown(content: string): string[] {
   const images: string[] = [];
-  const imgRegex = /!\[.*?\]\((https?:\/\/[^)]+)\)/g;
+  imgRegex.lastIndex = 0;
   let match;
   while ((match = imgRegex.exec(content)) !== null) {
     images.push(match[1]);
