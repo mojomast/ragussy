@@ -230,18 +230,44 @@ export async function* walkDocs(docsDir: string): AsyncGenerator<{ absolutePath:
   yield* walk(docsDir, docsDir);
 }
 
+async function pMap<T, R>(
+  items: T[],
+  mapper: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let index = 0;
+
+  async function worker() {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await mapper(items[i]);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(items.length, concurrency) }, worker)
+  );
+
+  return results;
+}
+
 export async function readAllDocs(): Promise<DocFile[]> {
   const docsPath = getDocsPath();
   logger.info({ docsPath }, 'Reading docs from directory');
-  
-  const docs: DocFile[] = [];
-  
-  for await (const { absolutePath, relativePath } of walkDocs(docsPath)) {
-    const doc = await readDocFile(absolutePath, relativePath);
-    if (doc) {
-      docs.push(doc);
-    }
+
+  const files: { absolutePath: string; relativePath: string }[] = [];
+  for await (const file of walkDocs(docsPath)) {
+    files.push(file);
   }
+
+  const results = await pMap(
+    files,
+    ({ absolutePath, relativePath }) => readDocFile(absolutePath, relativePath),
+    50
+  );
+
+  const docs = results.filter((doc): doc is DocFile => doc !== null);
   
   logger.info({ count: docs.length }, 'Read all doc files');
   return docs;
