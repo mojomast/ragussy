@@ -12,7 +12,7 @@ const BATCH_SIZE_THRESHOLD = 20; // Or after 20 updates
 let db: Database | null = null;
 let pendingWrites = 0;
 let flushTimer: NodeJS.Timeout | null = null;
-let writePromise: Promise<void> | null = null;
+let writeChain: Promise<void> = Promise.resolve();
 
 async function ensureDataDir(): Promise<void> {
   const dir = path.dirname(STATE_DB_PATH);
@@ -34,18 +34,36 @@ async function loadDatabase(): Promise<Database> {
 
 /**
  * Internal: Actually write database to disk.
+ * Serialized to prevent concurrent writes.
  */
 async function writeDatabaseToDisk(): Promise<void> {
-  if (!db) return;
+  // Append to write chain to serialize I/O
+  const operation = async () => {
+      if (!db) return;
+
+      try {
+          // Export current state
+          const data = db.export();
+          const buffer = Buffer.from(data);
+          await ensureDataDir();
+
+          // Atomic write with temp file
+          const tempFile = STATE_DB_PATH + '.tmp';
+          await fs.writeFile(tempFile, buffer);
+          await fs.rename(tempFile, STATE_DB_PATH);
+      } catch (err) {
+          logger.error({ error: err }, 'Failed to write state database');
+          throw err;
+      }
+  };
+
+  // Chain the operation
+  // We catch errors so the chain doesn't break for future writes
+  writeChain = writeChain.then(operation).catch(_err => {
+      // Error already logged inside operation, just swallowing here to keep chain alive
+  });
   
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  await ensureDataDir();
-  
-  // Atomic write with temp file
-  const tempFile = STATE_DB_PATH + '.tmp';
-  await fs.writeFile(tempFile, buffer);
-  await fs.rename(tempFile, STATE_DB_PATH);
+  return writeChain;
 }
 
 /**
@@ -81,10 +99,8 @@ function flushStateStoreSync(): void {
   
   pendingWrites = 0;
   
-  // Fire and forget, but track promise for final flush
-  writePromise = writeDatabaseToDisk().catch(err => {
-    logger.error({ error: err }, 'Failed to write state database');
-  });
+  // Fire and forget, but serialize via chain
+  writeDatabaseToDisk();
 }
 
 /**
@@ -96,14 +112,14 @@ export async function flushStateStore(): Promise<void> {
     flushTimer = null;
   }
   
-  if (pendingWrites > 0 || writePromise) {
+  if (pendingWrites > 0) {
     pendingWrites = 0;
-    await writeDatabaseToDisk();
-    if (writePromise) {
-      await writePromise;
-      writePromise = null;
-    }
+    // Schedule write
+    writeDatabaseToDisk();
   }
+
+  // Wait for all scheduled writes to complete
+  await writeChain;
 }
 
 /**
@@ -267,7 +283,11 @@ export async function clearAllState(): Promise<void> {
     flushTimer = null;
   }
   pendingWrites = 0;
-  writePromise = null;
+  // wait for current write chain to finish before we clear?
+  // Probably good idea, but clearing state effectively resets DB.
+  // But if a write is pending, it might overwrite the cleared DB.
+
+  await writeChain; // Ensure previous writes are done
   
   db!.run(`DELETE FROM chunk_ids`);
   db!.run(`DELETE FROM ingested_files`);
