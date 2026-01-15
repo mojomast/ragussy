@@ -1,6 +1,6 @@
 # Ragussy 🦝
 
-A universal RAG (Retrieval-Augmented Generation) chatbot with a full management UI. Point it at your markdown docs and get an AI-powered Q&A system with complete control over configuration, documents, and vector storage.
+A self-hosted RAG (Retrieval-Augmented Generation) chatbot optimized for Markdown documentation and forum discussions. Point it at your markdown docs and get an AI-powered Q&A system with complete control over configuration, documents, and vector storage.
 
 ![Ragussy Screenshot](https://via.placeholder.com/800x400?text=Ragussy+Dashboard)
 
