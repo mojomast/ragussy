@@ -30,6 +30,21 @@ interface ImageResult {
   relevance: number;
 }
 
+// Strip image URLs from content to avoid LLM outputting them as text
+function stripImageUrls(content: string): string {
+  // Remove common image URL patterns
+  return content
+    // Remove standalone image URLs (http/https ending in image extensions)
+    .replace(/https?:\/\/[^\s]+\.(?:jpg|jpeg|png|gif|webp|bmp|svg)(?:\?[^\s]*)?/gi, '[image]')
+    // Remove markdown image syntax
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, '[image]')
+    // Remove HTML img tags
+    .replace(/<img[^>]*>/gi, '[image]')
+    // Clean up multiple [image] markers
+    .replace(/(\[image\]\s*)+/g, '[image] ')
+    .trim();
+}
+
 // API Key authentication middleware
 function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
   // Check if system is configured
@@ -86,21 +101,51 @@ router.post('/', async (req: Request, res: Response) => {
 
     for (const result of searchResults) {
       const payload = result.payload;
-      const url = `${env.PUBLIC_DOCS_BASE_URL}${payload.url_path}`;
+      const isForumPost = payload.docType === 'forum_post';
+      
+      let title: string;
+      let url: string;
+      let section: string;
+      
+      if (isForumPost) {
+        // Forum post payload
+        title = payload.threadTitle as string || 'Forum Thread';
+        section = `Post by ${payload.username || 'Unknown'} (${payload.date ? new Date(payload.date as string).toLocaleDateString() : 'Unknown date'})`;
+        url = payload.anchor as string || '#';
+      } else {
+        // Document payload
+        title = payload.doc_title as string || 'Document';
+        section = payload.section_title as string || '';
+        url = `${env.PUBLIC_DOCS_BASE_URL}${payload.url_path || ''}`;
+      }
       
       sources.push({
-        title: payload.doc_title as string,
+        title,
         url,
-        section: payload.section_title as string,
+        section,
         relevance: result.score,
       });
 
-      contextParts.push(`---
-Source: ${payload.doc_title} > ${payload.section_title}
+      // Get content and strip image URLs to prevent LLM from outputting them
+      const rawContent = payload.content as string || 'Content not available';
+      const cleanContent = stripImageUrls(rawContent);
+
+      if (isForumPost) {
+        contextParts.push(`---
+Source: ${title}
+${section}
+Thread: ${payload.threadId}, Post: ${payload.postId}
+
+${cleanContent}
+---`);
+      } else {
+        contextParts.push(`---
+Source: ${title} > ${section}
 URL: ${url}
 
-${payload.content || 'Content not available'}
+${cleanContent}
 ---`);
+      }
 
       // Collect images from search results
       const images = payload.images as string[] | undefined;
@@ -108,7 +153,7 @@ ${payload.content || 'Content not available'}
         for (const imgUrl of images) {
           allImages.push({
             url: imgUrl,
-            sourceTitle: payload.doc_title as string,
+            sourceTitle: isForumPost ? `${title} - ${section}` : title,
             relevance: result.score,
           });
         }
