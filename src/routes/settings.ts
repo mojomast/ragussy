@@ -44,6 +44,19 @@ interface Settings {
   discordCommandPrefix: string;
   discordEmbedColor: string;
   discordCooldownSeconds: number;
+  // Forum Mode
+  forumMode: boolean;
+  forumMaxTokens: number;
+  forumEmbeddingModel: string;
+  forumEmbedQuotedContent: boolean;
+  forumEmbeddingThreads: number;
+  forumUpsertThreads: number;
+  forumSkipUnchanged: boolean;
+  forumGroupByThread: boolean;
+  forumTimeDecay: boolean;
+  forumTimeDecayHalfLife: number;
+  forumMaxPostsPerThread: number;
+  forumRetrievalCount: number;
 }
 
 async function parseEnvFile(): Promise<Record<string, string>> {
@@ -151,6 +164,22 @@ DISCORD_BOT_NAME=${env.DISCORD_BOT_NAME || 'Docs Bot'}
 DISCORD_COMMAND_PREFIX=${env.DISCORD_COMMAND_PREFIX || '!docs'}
 DISCORD_EMBED_COLOR=${env.DISCORD_EMBED_COLOR || '0x7c3aed'}
 DISCORD_COOLDOWN_SECONDS=${env.DISCORD_COOLDOWN_SECONDS || '5'}
+
+# ===================
+# Forum Ingestion Mode
+# ===================
+FORUM_MODE=${env.FORUM_MODE || 'false'}
+FORUM_MAX_TOKENS=${env.FORUM_MAX_TOKENS || '800'}
+FORUM_EMBEDDING_MODEL=${env.FORUM_EMBEDDING_MODEL || 'baai/bge-m3'}
+FORUM_EMBED_QUOTED_CONTENT=${env.FORUM_EMBED_QUOTED_CONTENT || 'false'}
+FORUM_EMBEDDING_THREADS=${env.FORUM_EMBEDDING_THREADS || '6'}
+FORUM_UPSERT_THREADS=${env.FORUM_UPSERT_THREADS || '4'}
+FORUM_SKIP_UNCHANGED=${env.FORUM_SKIP_UNCHANGED || 'true'}
+FORUM_GROUP_BY_THREAD=${env.FORUM_GROUP_BY_THREAD || 'true'}
+FORUM_TIME_DECAY=${env.FORUM_TIME_DECAY || 'false'}
+FORUM_TIME_DECAY_HALF_LIFE=${env.FORUM_TIME_DECAY_HALF_LIFE || '365'}
+FORUM_MAX_POSTS_PER_THREAD=${env.FORUM_MAX_POSTS_PER_THREAD || '10'}
+FORUM_RETRIEVAL_COUNT=${env.FORUM_RETRIEVAL_COUNT || '30'}
 `;
 
   await fs.writeFile(ENV_PATH, content);
@@ -226,6 +255,19 @@ router.get('/', async (_req: Request, res: Response) => {
       discordCommandPrefix: env.DISCORD_COMMAND_PREFIX || '!docs',
       discordEmbedColor: env.DISCORD_EMBED_COLOR || '0x7c3aed',
       discordCooldownSeconds: parseInt(env.DISCORD_COOLDOWN_SECONDS || '5'),
+      // Forum Mode
+      forumMode: env.FORUM_MODE === 'true',
+      forumMaxTokens: parseInt(env.FORUM_MAX_TOKENS || '800'),
+      forumEmbeddingModel: env.FORUM_EMBEDDING_MODEL || 'baai/bge-m3',
+      forumEmbedQuotedContent: env.FORUM_EMBED_QUOTED_CONTENT === 'true',
+      forumEmbeddingThreads: parseInt(env.FORUM_EMBEDDING_THREADS || '6'),
+      forumUpsertThreads: parseInt(env.FORUM_UPSERT_THREADS || '4'),
+      forumSkipUnchanged: env.FORUM_SKIP_UNCHANGED !== 'false',
+      forumGroupByThread: env.FORUM_GROUP_BY_THREAD !== 'false',
+      forumTimeDecay: env.FORUM_TIME_DECAY === 'true',
+      forumTimeDecayHalfLife: parseInt(env.FORUM_TIME_DECAY_HALF_LIFE || '365'),
+      forumMaxPostsPerThread: parseInt(env.FORUM_MAX_POSTS_PER_THREAD || '10'),
+      forumRetrievalCount: parseInt(env.FORUM_RETRIEVAL_COUNT || '30'),
     };
     
     return res.json(settings);
@@ -304,6 +346,19 @@ router.put('/', async (req: Request, res: Response) => {
       discordCommandPrefix: 'DISCORD_COMMAND_PREFIX',
       discordEmbedColor: 'DISCORD_EMBED_COLOR',
       discordCooldownSeconds: 'DISCORD_COOLDOWN_SECONDS',
+      // Forum Mode
+      forumMode: 'FORUM_MODE',
+      forumMaxTokens: 'FORUM_MAX_TOKENS',
+      forumEmbeddingModel: 'FORUM_EMBEDDING_MODEL',
+      forumEmbedQuotedContent: 'FORUM_EMBED_QUOTED_CONTENT',
+      forumEmbeddingThreads: 'FORUM_EMBEDDING_THREADS',
+      forumUpsertThreads: 'FORUM_UPSERT_THREADS',
+      forumSkipUnchanged: 'FORUM_SKIP_UNCHANGED',
+      forumGroupByThread: 'FORUM_GROUP_BY_THREAD',
+      forumTimeDecay: 'FORUM_TIME_DECAY',
+      forumTimeDecayHalfLife: 'FORUM_TIME_DECAY_HALF_LIFE',
+      forumMaxPostsPerThread: 'FORUM_MAX_POSTS_PER_THREAD',
+      forumRetrievalCount: 'FORUM_RETRIEVAL_COUNT',
     };
     
     for (const [field, envKey] of Object.entries(fieldMap)) {

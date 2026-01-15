@@ -54,6 +54,19 @@ interface Settings {
   discordCommandPrefix: string
   discordEmbedColor: string
   discordCooldownSeconds: number
+  // Forum Mode
+  forumMode: boolean
+  forumMaxTokens: number
+  forumEmbeddingModel: string
+  forumEmbedQuotedContent: boolean
+  forumEmbeddingThreads: number
+  forumUpsertThreads: number
+  forumSkipUnchanged: boolean
+  forumGroupByThread: boolean
+  forumTimeDecay: boolean
+  forumTimeDecayHalfLife: number
+  forumMaxPostsPerThread: number
+  forumRetrievalCount: number
 }
 
 export default function SettingsPage() {
@@ -1113,6 +1126,150 @@ export default function SettingsPage() {
           onChange={e => updateSetting('customSystemPrompt', e.target.value)}
           placeholder="Use {PROJECT_NAME} and {CONTEXT} as placeholders..."
         />
+      </Card>
+
+      {/* Forum Mode */}
+      <Card title="Forum Ingestion Mode" description="Configure forum/discussion data ingestion">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="forumMode"
+              checked={settings.forumMode}
+              onChange={e => updateSetting('forumMode', e.target.checked)}
+              className="rounded"
+            />
+            <label htmlFor="forumMode" className="text-sm font-medium text-slate-700">
+              Enable Forum Mode
+            </label>
+          </div>
+
+          {settings.forumMode && (
+            <>
+              <div className="bg-purple-50 p-4 rounded-lg text-sm text-purple-800">
+                <strong>Forum Mode</strong> treats each post as the primary ingestion unit, preserving author attribution, timestamps, and thread context. 
+                Run <code className="bg-purple-100 px-1 rounded">npm run ingest:forum</code> to ingest forum data.
+              </div>
+
+              <div className="border-t border-slate-200 pt-4">
+                <h4 className="text-sm font-medium text-slate-700 mb-3">Ingestion Settings</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <Input
+                    label="Max Tokens per Chunk"
+                    type="number"
+                    value={settings.forumMaxTokens}
+                    onChange={e => updateSetting('forumMaxTokens', parseInt(e.target.value))}
+                    hint="Default: 800"
+                  />
+                  <Input
+                    label="Embedding Model"
+                    value={settings.forumEmbeddingModel}
+                    onChange={e => updateSetting('forumEmbeddingModel', e.target.value)}
+                    hint="Default: baai/bge-m3"
+                  />
+                  <div className="flex items-center gap-2 pt-6">
+                    <input
+                      type="checkbox"
+                      id="forumEmbedQuotedContent"
+                      checked={settings.forumEmbedQuotedContent}
+                      onChange={e => updateSetting('forumEmbedQuotedContent', e.target.checked)}
+                      className="rounded border-slate-300"
+                    />
+                    <label htmlFor="forumEmbedQuotedContent" className="text-sm text-slate-700">
+                      Embed quoted content
+                    </label>
+                  </div>
+                  <Input
+                    label="Embedding Threads"
+                    type="number"
+                    value={settings.forumEmbeddingThreads}
+                    onChange={e => updateSetting('forumEmbeddingThreads', parseInt(e.target.value))}
+                    hint="Default: 6"
+                  />
+                  <Input
+                    label="Upsert Threads"
+                    type="number"
+                    value={settings.forumUpsertThreads}
+                    onChange={e => updateSetting('forumUpsertThreads', parseInt(e.target.value))}
+                    hint="Default: 4"
+                  />
+                  <div className="flex items-center gap-2 pt-6">
+                    <input
+                      type="checkbox"
+                      id="forumSkipUnchanged"
+                      checked={settings.forumSkipUnchanged}
+                      onChange={e => updateSetting('forumSkipUnchanged', e.target.checked)}
+                      className="rounded border-slate-300"
+                    />
+                    <label htmlFor="forumSkipUnchanged" className="text-sm text-slate-700">
+                      Skip unchanged posts
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 pt-4">
+                <h4 className="text-sm font-medium text-slate-700 mb-3">Retrieval Settings</h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="flex items-center gap-2 pt-6">
+                    <input
+                      type="checkbox"
+                      id="forumGroupByThread"
+                      checked={settings.forumGroupByThread}
+                      onChange={e => updateSetting('forumGroupByThread', e.target.checked)}
+                      className="rounded border-slate-300"
+                    />
+                    <label htmlFor="forumGroupByThread" className="text-sm text-slate-700">
+                      Group by thread
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2 pt-6">
+                    <input
+                      type="checkbox"
+                      id="forumTimeDecay"
+                      checked={settings.forumTimeDecay}
+                      onChange={e => updateSetting('forumTimeDecay', e.target.checked)}
+                      className="rounded border-slate-300"
+                    />
+                    <label htmlFor="forumTimeDecay" className="text-sm text-slate-700">
+                      Time decay weighting
+                    </label>
+                  </div>
+                  <Input
+                    label="Time Decay Half-Life (days)"
+                    type="number"
+                    value={settings.forumTimeDecayHalfLife}
+                    onChange={e => updateSetting('forumTimeDecayHalfLife', parseInt(e.target.value))}
+                    hint="Default: 365"
+                  />
+                  <Input
+                    label="Max Posts per Thread"
+                    type="number"
+                    value={settings.forumMaxPostsPerThread}
+                    onChange={e => updateSetting('forumMaxPostsPerThread', parseInt(e.target.value))}
+                    hint="In context (default: 10)"
+                  />
+                  <Input
+                    label="Retrieval Count"
+                    type="number"
+                    value={settings.forumRetrievalCount}
+                    onChange={e => updateSetting('forumRetrievalCount', parseInt(e.target.value))}
+                    hint="Posts to retrieve (default: 30)"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-lg text-sm">
+                <strong>Forum retrieval assumes:</strong>
+                <ul className="list-disc list-inside mt-2 text-slate-600">
+                  <li>Posts may disagree with each other</li>
+                  <li>Advice may change over time</li>
+                  <li>No single post is authoritative</li>
+                </ul>
+              </div>
+            </>
+          )}
+        </div>
       </Card>
 
       {/* Discord Bot */}
