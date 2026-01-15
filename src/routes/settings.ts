@@ -219,6 +219,13 @@ router.get('/', async (_req: Request, res: Response) => {
   try {
     const env = await parseEnvFile();
     
+    // Helper to safely parse integers with defaults
+    const safeInt = (value: string | undefined, defaultValue: number): number => {
+      if (!value) return defaultValue;
+      const parsed = parseInt(value, 10);
+      return isNaN(parsed) ? defaultValue : parsed;
+    };
+    
     const settings: Settings = {
       projectName: env.PROJECT_NAME || 'My Documentation',
       publicDocsBaseUrl: env.PUBLIC_DOCS_BASE_URL || 'https://docs.example.com',
@@ -226,22 +233,22 @@ router.get('/', async (_req: Request, res: Response) => {
       docsExtensions: env.DOCS_EXTENSIONS || '.md,.mdx',
       qdrantUrl: env.QDRANT_URL || 'http://localhost:6333',
       qdrantCollection: env.QDRANT_COLLECTION || 'docs',
-      vectorDim: parseInt(env.VECTOR_DIM || '1536'),
+      vectorDim: safeInt(env.VECTOR_DIM, 1536),
       llmBaseUrl: env.LLM_BASE_URL || 'https://api.openai.com/v1',
       llmApiKey: env.LLM_API_KEY ? '••••••••' + env.LLM_API_KEY.slice(-4) : '',
       llmModel: env.LLM_MODEL || 'gpt-4o-mini',
-      llmMaxTokens: parseInt(env.LLM_MAX_TOKENS || '4096'),
+      llmMaxTokens: safeInt(env.LLM_MAX_TOKENS, 4096),
       embedBaseUrl: env.EMBED_BASE_URL || 'https://api.openai.com/v1',
       embedApiKey: env.EMBED_API_KEY ? '••••••••' + env.EMBED_API_KEY.slice(-4) : '',
       embedModel: env.EMBED_MODEL || 'text-embedding-3-small',
-      maxContextTokens: parseInt(env.MAX_CONTEXT_TOKENS || '4000'),
-      retrievalTopK: parseInt(env.RETRIEVAL_TOP_K || '6'),
-      chunkTargetTokens: parseInt(env.CHUNK_TARGET_TOKENS || '500'),
-      chunkMaxTokens: parseInt(env.CHUNK_MAX_TOKENS || '800'),
-      chunkOverlapTokens: parseInt(env.CHUNK_OVERLAP_TOKENS || '120'),
-      absoluteMaxTokens: parseInt(env.ABSOLUTE_MAX_TOKENS || '1024'),
-      embeddingThreads: parseInt(env.EMBEDDING_THREADS || '4'),
-      upsertThreads: parseInt(env.UPSERT_THREADS || '2'),
+      maxContextTokens: safeInt(env.MAX_CONTEXT_TOKENS, 4000),
+      retrievalTopK: safeInt(env.RETRIEVAL_TOP_K, 6),
+      chunkTargetTokens: safeInt(env.CHUNK_TARGET_TOKENS, 500),
+      chunkMaxTokens: safeInt(env.CHUNK_MAX_TOKENS, 800),
+      chunkOverlapTokens: safeInt(env.CHUNK_OVERLAP_TOKENS, 120),
+      absoluteMaxTokens: safeInt(env.ABSOLUTE_MAX_TOKENS, 1024),
+      embeddingThreads: safeInt(env.EMBEDDING_THREADS, 4),
+      upsertThreads: safeInt(env.UPSERT_THREADS, 2),
       failFastValidation: env.FAIL_FAST_VALIDATION === 'true',
       apiKey: env.API_KEY ? '••••••••' + env.API_KEY.slice(-4) : '',
       adminToken: env.ADMIN_TOKEN ? '••••••••' + env.ADMIN_TOKEN.slice(-4) : '',
@@ -254,20 +261,20 @@ router.get('/', async (_req: Request, res: Response) => {
       discordBotName: env.DISCORD_BOT_NAME || 'Docs Bot',
       discordCommandPrefix: env.DISCORD_COMMAND_PREFIX || '!docs',
       discordEmbedColor: env.DISCORD_EMBED_COLOR || '0x7c3aed',
-      discordCooldownSeconds: parseInt(env.DISCORD_COOLDOWN_SECONDS || '5'),
+      discordCooldownSeconds: safeInt(env.DISCORD_COOLDOWN_SECONDS, 5),
       // Forum Mode
       forumMode: env.FORUM_MODE === 'true',
-      forumMaxTokens: parseInt(env.FORUM_MAX_TOKENS || '800'),
+      forumMaxTokens: safeInt(env.FORUM_MAX_TOKENS, 800),
       forumEmbeddingModel: env.FORUM_EMBEDDING_MODEL || 'baai/bge-m3',
       forumEmbedQuotedContent: env.FORUM_EMBED_QUOTED_CONTENT === 'true',
-      forumEmbeddingThreads: parseInt(env.FORUM_EMBEDDING_THREADS || '6'),
-      forumUpsertThreads: parseInt(env.FORUM_UPSERT_THREADS || '4'),
+      forumEmbeddingThreads: safeInt(env.FORUM_EMBEDDING_THREADS, 6),
+      forumUpsertThreads: safeInt(env.FORUM_UPSERT_THREADS, 4),
       forumSkipUnchanged: env.FORUM_SKIP_UNCHANGED !== 'false',
       forumGroupByThread: env.FORUM_GROUP_BY_THREAD !== 'false',
       forumTimeDecay: env.FORUM_TIME_DECAY === 'true',
-      forumTimeDecayHalfLife: parseInt(env.FORUM_TIME_DECAY_HALF_LIFE || '365'),
-      forumMaxPostsPerThread: parseInt(env.FORUM_MAX_POSTS_PER_THREAD || '10'),
-      forumRetrievalCount: parseInt(env.FORUM_RETRIEVAL_COUNT || '30'),
+      forumTimeDecayHalfLife: safeInt(env.FORUM_TIME_DECAY_HALF_LIFE, 365),
+      forumMaxPostsPerThread: safeInt(env.FORUM_MAX_POSTS_PER_THREAD, 10),
+      forumRetrievalCount: safeInt(env.FORUM_RETRIEVAL_COUNT, 30),
     };
     
     return res.json(settings);
