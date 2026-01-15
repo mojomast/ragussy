@@ -177,11 +177,28 @@ export default function SettingsPage() {
       const actualKeysRes = await fetch('/api/settings/actual-keys')
       const actualKeys = await actualKeysRes.json()
       
-      setSettings({
+      // Ensure all forum fields have defaults to prevent controlled/uncontrolled warnings
+      const settingsWithDefaults = {
         ...data,
+        // Forum defaults
+        forumMode: data.forumMode ?? false,
+        forumMaxTokens: data.forumMaxTokens || 800,
+        forumEmbeddingModel: data.forumEmbeddingModel || 'baai/bge-m3',
+        forumEmbedQuotedContent: data.forumEmbedQuotedContent ?? false,
+        forumEmbeddingThreads: data.forumEmbeddingThreads || 6,
+        forumUpsertThreads: data.forumUpsertThreads || 4,
+        forumSkipUnchanged: data.forumSkipUnchanged ?? true,
+        forumGroupByThread: data.forumGroupByThread ?? true,
+        forumTimeDecay: data.forumTimeDecay ?? false,
+        forumTimeDecayHalfLife: data.forumTimeDecayHalfLife || 365,
+        forumMaxPostsPerThread: data.forumMaxPostsPerThread || 10,
+        forumRetrievalCount: data.forumRetrievalCount || 30,
+        // Internal keys
         _actualLlmApiKey: actualKeys.llmApiKey || '',
         _actualEmbedApiKey: actualKeys.embedApiKey || '',
-      } as any)
+      }
+      
+      setSettings(settingsWithDefaults as any)
       
       // Check if using custom URLs
       const knownUrls = ['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1']
@@ -213,6 +230,13 @@ export default function SettingsPage() {
 
     setSaving(true)
     try {
+      // Log forum settings being saved
+      console.log('Saving settings with forum config:', {
+        forumMode: settings.forumMode,
+        forumMaxTokens: settings.forumMaxTokens,
+        forumEmbeddingModel: settings.forumEmbeddingModel,
+      })
+      
       const res = await fetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

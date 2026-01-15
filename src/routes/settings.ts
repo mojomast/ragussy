@@ -374,9 +374,21 @@ router.put('/', async (req: Request, res: Response) => {
         if (typeof updates[field] === 'string' && updates[field].startsWith('••••')) {
           continue;
         }
-        currentEnv[envKey] = String(updates[field]);
+        const newValue = String(updates[field]);
+        // Log forum mode changes specifically
+        if (field.startsWith('forum')) {
+          logger.info({ field, envKey, value: newValue }, 'Updating forum setting');
+        }
+        currentEnv[envKey] = newValue;
       }
     }
+    
+    // Log the forum settings being written
+    logger.info({
+      FORUM_MODE: currentEnv.FORUM_MODE,
+      FORUM_MAX_TOKENS: currentEnv.FORUM_MAX_TOKENS,
+      FORUM_EMBEDDING_MODEL: currentEnv.FORUM_EMBEDDING_MODEL,
+    }, 'Forum settings to be written');
     
     await writeEnvFile(currentEnv);
     
