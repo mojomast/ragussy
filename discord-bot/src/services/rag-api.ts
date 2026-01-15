@@ -12,9 +12,17 @@ export interface Source {
   relevance?: number;
 }
 
+export interface ImageResult {
+  url: string;
+  sourceTitle: string;
+  relevance?: number;
+}
+
 export interface ChatResponse {
   answer: string;
   sources: Source[];
+  images?: ImageResult[];
+  totalImages?: number;
   conversationId: string;
 }
 
@@ -24,6 +32,12 @@ export interface HealthResponse {
     api: string;
     qdrant: string;
   };
+}
+
+export interface MoreImagesResponse {
+  images: ImageResult[];
+  total: number;
+  hasMore: boolean;
 }
 
 export class RagApiClient {
@@ -56,9 +70,29 @@ export class RagApiClient {
     }
 
     const data = await response.json() as ChatResponse;
-    logger.debug({ answerLength: data.answer.length, sourceCount: data.sources.length }, 'RAG API response received');
+    logger.debug({ 
+      answerLength: data.answer.length, 
+      sourceCount: data.sources.length,
+      imageCount: data.images?.length || 0,
+    }, 'RAG API response received');
 
     return data;
+  }
+
+  async getMoreImages(conversationId: string, offset: number = 0, limit: number = 5): Promise<MoreImagesResponse> {
+    const url = `${this.baseUrl}/chat/${conversationId}/images?offset=${offset}&limit=${limit}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'x-api-key': this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get more images: ${response.status}`);
+    }
+
+    return await response.json() as MoreImagesResponse;
   }
 
   async health(): Promise<HealthResponse> {
