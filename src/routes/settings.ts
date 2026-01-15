@@ -182,7 +182,13 @@ FORUM_MAX_POSTS_PER_THREAD=${env.FORUM_MAX_POSTS_PER_THREAD || '10'}
 FORUM_RETRIEVAL_COUNT=${env.FORUM_RETRIEVAL_COUNT || '30'}
 `;
 
+  logger.info({ path: ENV_PATH, forumMode: env.FORUM_MODE }, 'Writing .env file');
   await fs.writeFile(ENV_PATH, content);
+  
+  // Verify the file was written correctly
+  const written = await fs.readFile(ENV_PATH, 'utf-8');
+  const forumModeInFile = written.match(/^FORUM_MODE=(.*)$/m)?.[1];
+  logger.info({ path: ENV_PATH, forumModeInFile }, '.env file written and verified');
 }
 
 // Check if initial setup is needed (NO AUTH REQUIRED)
