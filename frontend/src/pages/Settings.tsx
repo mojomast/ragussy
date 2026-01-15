@@ -1136,7 +1136,29 @@ export default function SettingsPage() {
               type="checkbox"
               id="forumMode"
               checked={settings.forumMode}
-              onChange={e => updateSetting('forumMode', e.target.checked)}
+              onChange={e => {
+                const enabled = e.target.checked
+                // When enabling forum mode, populate with defaults if values are missing
+                if (enabled && settings) {
+                  setSettings({
+                    ...settings,
+                    forumMode: true,
+                    forumMaxTokens: settings.forumMaxTokens || 800,
+                    forumEmbeddingModel: settings.forumEmbeddingModel || 'baai/bge-m3',
+                    forumEmbedQuotedContent: settings.forumEmbedQuotedContent ?? false,
+                    forumEmbeddingThreads: settings.forumEmbeddingThreads || 6,
+                    forumUpsertThreads: settings.forumUpsertThreads || 4,
+                    forumSkipUnchanged: settings.forumSkipUnchanged ?? true,
+                    forumGroupByThread: settings.forumGroupByThread ?? true,
+                    forumTimeDecay: settings.forumTimeDecay ?? false,
+                    forumTimeDecayHalfLife: settings.forumTimeDecayHalfLife || 365,
+                    forumMaxPostsPerThread: settings.forumMaxPostsPerThread || 10,
+                    forumRetrievalCount: settings.forumRetrievalCount || 30,
+                  })
+                } else {
+                  updateSetting('forumMode', enabled)
+                }
+              }}
               className="rounded"
             />
             <label htmlFor="forumMode" className="text-sm font-medium text-slate-700">
@@ -1157,14 +1179,14 @@ export default function SettingsPage() {
                   <Input
                     label="Max Tokens per Chunk"
                     type="number"
-                    value={settings.forumMaxTokens}
-                    onChange={e => updateSetting('forumMaxTokens', parseInt(e.target.value))}
+                    value={settings.forumMaxTokens || 800}
+                    onChange={e => updateSetting('forumMaxTokens', parseInt(e.target.value) || 800)}
                     hint="Default: 800"
                   />
                   <Input
                     label="Embedding Model"
-                    value={settings.forumEmbeddingModel}
-                    onChange={e => updateSetting('forumEmbeddingModel', e.target.value)}
+                    value={settings.forumEmbeddingModel || 'baai/bge-m3'}
+                    onChange={e => updateSetting('forumEmbeddingModel', e.target.value || 'baai/bge-m3')}
                     hint="Default: baai/bge-m3"
                   />
                   <div className="flex items-center gap-2 pt-6">
@@ -1182,15 +1204,15 @@ export default function SettingsPage() {
                   <Input
                     label="Embedding Threads"
                     type="number"
-                    value={settings.forumEmbeddingThreads}
-                    onChange={e => updateSetting('forumEmbeddingThreads', parseInt(e.target.value))}
+                    value={settings.forumEmbeddingThreads || 6}
+                    onChange={e => updateSetting('forumEmbeddingThreads', parseInt(e.target.value) || 6)}
                     hint="Default: 6"
                   />
                   <Input
                     label="Upsert Threads"
                     type="number"
-                    value={settings.forumUpsertThreads}
-                    onChange={e => updateSetting('forumUpsertThreads', parseInt(e.target.value))}
+                    value={settings.forumUpsertThreads || 4}
+                    onChange={e => updateSetting('forumUpsertThreads', parseInt(e.target.value) || 4)}
                     hint="Default: 4"
                   />
                   <div className="flex items-center gap-2 pt-6">
@@ -1238,22 +1260,22 @@ export default function SettingsPage() {
                   <Input
                     label="Time Decay Half-Life (days)"
                     type="number"
-                    value={settings.forumTimeDecayHalfLife}
-                    onChange={e => updateSetting('forumTimeDecayHalfLife', parseInt(e.target.value))}
+                    value={settings.forumTimeDecayHalfLife || 365}
+                    onChange={e => updateSetting('forumTimeDecayHalfLife', parseInt(e.target.value) || 365)}
                     hint="Default: 365"
                   />
                   <Input
                     label="Max Posts per Thread"
                     type="number"
-                    value={settings.forumMaxPostsPerThread}
-                    onChange={e => updateSetting('forumMaxPostsPerThread', parseInt(e.target.value))}
+                    value={settings.forumMaxPostsPerThread || 10}
+                    onChange={e => updateSetting('forumMaxPostsPerThread', parseInt(e.target.value) || 10)}
                     hint="In context (default: 10)"
                   />
                   <Input
                     label="Retrieval Count"
                     type="number"
-                    value={settings.forumRetrievalCount}
-                    onChange={e => updateSetting('forumRetrievalCount', parseInt(e.target.value))}
+                    value={settings.forumRetrievalCount || 30}
+                    onChange={e => updateSetting('forumRetrievalCount', parseInt(e.target.value) || 30)}
                     hint="Posts to retrieve (default: 30)"
                   />
                 </div>
