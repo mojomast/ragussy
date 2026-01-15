@@ -55,19 +55,21 @@ export async function readForumThreadsFromDirectory(dirPath: string): Promise<Fo
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
     
-    for (const entry of entries) {
+    const results = await Promise.all(entries.map(async (entry) => {
       if (entry.isFile() && isForumThreadFile(entry.name)) {
         const filePath = path.join(dirPath, entry.name);
         const thread = await parseForumThreadFile(filePath);
-        if (thread) {
-          threads.push(thread);
-        }
+        return thread ? [thread] : [];
       } else if (entry.isDirectory()) {
         // Recursively search subdirectories
         const subDirPath = path.join(dirPath, entry.name);
-        const subThreads = await readForumThreadsFromDirectory(subDirPath);
-        threads.push(...subThreads);
+        return readForumThreadsFromDirectory(subDirPath);
       }
+      return [];
+    }));
+
+    for (const result of results) {
+      threads.push(...result);
     }
   } catch (error) {
     logger.error({ error, dirPath }, 'Failed to read forum threads directory');
