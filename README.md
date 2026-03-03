@@ -178,6 +178,7 @@ You can also open per-file conversion reports from the Documents list.
 When conversion fails, raw uploads are retained for retry in the Documents "Conversion Failures" panel.
 ZIP uploads support bulk conversion with a per-file status table.
 Large convert uploads can run async ingestion and expose queue status via `/api/documents/ingestion-jobs`.
+Conversion metrics are available in the Documents page and via `/api/documents/conversion-metrics`.
 
 ### Indexing
 

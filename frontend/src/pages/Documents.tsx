@@ -125,6 +125,15 @@ interface IngestionJob {
   error?: string
 }
 
+interface ConversionMetrics {
+  totalConversions: number
+  totalSuccesses: number
+  totalFailures: number
+  avgDurationMs: number
+  byFormat: Record<string, { successCount: number; failureCount: number; avgDurationMs: number }>
+  byEngine: Record<string, { successCount: number; failureCount: number; avgDurationMs: number }>
+}
+
 export default function Documents() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [docsPath, setDocsPath] = useState('')
@@ -147,6 +156,7 @@ export default function Documents() {
   const [conversionFailures, setConversionFailures] = useState<ConversionFailureRecord[]>([])
   const [retryingFailureId, setRetryingFailureId] = useState<string | null>(null)
   const [ingestionJobs, setIngestionJobs] = useState<IngestionJob[]>([])
+  const [conversionMetrics, setConversionMetrics] = useState<ConversionMetrics | null>(null)
   const [metadataLoadingPath, setMetadataLoadingPath] = useState<string | null>(null)
   const consoleEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
@@ -240,11 +250,26 @@ export default function Documents() {
     }
   }
 
+  const fetchConversionMetrics = async () => {
+    try {
+      const res = await apiFetch('/api/documents/conversion-metrics')
+      if (!res.ok) {
+        return
+      }
+
+      const data = await res.json()
+      setConversionMetrics(data.metrics || null)
+    } catch {
+      // Ignore
+    }
+  }
+
   useEffect(() => {
     fetchDocuments()
     fetchIngestionStatus()
     fetchConversionFailures()
     fetchIngestionJobs()
+    fetchConversionMetrics()
   }, [])
 
   useEffect(() => {
@@ -255,6 +280,7 @@ export default function Documents() {
 
     const interval = setInterval(() => {
       fetchIngestionJobs()
+      fetchConversionMetrics()
     }, 3000)
 
     return () => clearInterval(interval)
@@ -294,6 +320,7 @@ export default function Documents() {
           fetchIngestionStatus()
           fetchConversionFailures()
           fetchIngestionJobs()
+          fetchConversionMetrics()
         } else {
           toast('error', data.error || 'Bulk convert failed')
         }
@@ -322,6 +349,7 @@ export default function Documents() {
             toast('error', `Convert upload failed (failure id: ${(data as any).conversionFailureId})`)
             fetchConversionFailures()
             fetchIngestionJobs()
+            fetchConversionMetrics()
           }
           toast('error', data.error || 'Convert upload failed')
         }
@@ -337,6 +365,7 @@ export default function Documents() {
           fetchDocuments()
           fetchConversionFailures()
           fetchIngestionJobs()
+          fetchConversionMetrics()
         } else {
           toast('error', data.error || 'Upload failed')
         }
@@ -398,6 +427,7 @@ export default function Documents() {
         fetchDocuments()
         fetchIngestionStatus()
         fetchIngestionJobs()
+        fetchConversionMetrics()
       } else {
         addConsoleLog('error', `Ingestion failed: ${data.message || data.error || 'Unknown error'}`)
         toast('error', data.message || data.error || 'Ingestion failed')
@@ -461,6 +491,7 @@ export default function Documents() {
           fetchDocuments()
           fetchIngestionStatus()
           fetchIngestionJobs()
+          fetchConversionMetrics()
           break
         }
 
@@ -512,6 +543,7 @@ export default function Documents() {
         fetchDocuments()
         fetchIngestionStatus()
         fetchIngestionJobs()
+        fetchConversionMetrics()
       } else {
         addConsoleLog('error', `Ingestion failed: ${data.message || data.error || 'Unknown error'}`)
         toast('error', data.message || data.error || 'Ingestion failed')
@@ -533,6 +565,7 @@ export default function Documents() {
         toast('success', 'Document deleted')
         fetchDocuments()
         fetchIngestionJobs()
+        fetchConversionMetrics()
       } else {
         toast('error', 'Failed to delete')
       }
@@ -575,6 +608,7 @@ export default function Documents() {
         fetchIngestionStatus()
         fetchConversionFailures()
         fetchIngestionJobs()
+        fetchConversionMetrics()
         if (data.files && data.files.length > 0) {
           handleViewConversionReport(data.files[0])
         }
@@ -652,6 +686,60 @@ export default function Documents() {
           </div>
         </Card>
       </div>
+
+      {/* Ingestion Settings */}
+      {conversionMetrics && (
+        <Card title="Conversion Metrics" description="Live conversion success/failure and latency breakdown">
+          <div className="grid grid-cols-4 gap-4 mb-4">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-xs text-slate-500">Total</p>
+              <p className="text-xl font-semibold text-slate-900">{conversionMetrics.totalConversions}</p>
+            </div>
+            <div className="rounded-lg bg-green-50 p-3">
+              <p className="text-xs text-green-700">Success</p>
+              <p className="text-xl font-semibold text-green-800">{conversionMetrics.totalSuccesses}</p>
+            </div>
+            <div className="rounded-lg bg-red-50 p-3">
+              <p className="text-xs text-red-700">Failures</p>
+              <p className="text-xl font-semibold text-red-800">{conversionMetrics.totalFailures}</p>
+            </div>
+            <div className="rounded-lg bg-blue-50 p-3">
+              <p className="text-xs text-blue-700">Avg latency</p>
+              <p className="text-xl font-semibold text-blue-800">{conversionMetrics.avgDurationMs}ms</p>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm font-medium text-slate-700 mb-2">By format</p>
+              <div className="space-y-1 text-sm">
+                {Object.entries(conversionMetrics.byFormat).map(([format, stats]) => (
+                  <div key={format} className="flex justify-between rounded border border-slate-200 px-2 py-1">
+                    <span className="font-medium text-slate-800">{format}</span>
+                    <span className="text-slate-600">
+                      {stats.successCount} ok / {stats.failureCount} fail · {stats.avgDurationMs}ms avg
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-slate-700 mb-2">By engine</p>
+              <div className="space-y-1 text-sm">
+                {Object.entries(conversionMetrics.byEngine).map(([engine, stats]) => (
+                  <div key={engine} className="flex justify-between rounded border border-slate-200 px-2 py-1">
+                    <span className="font-medium text-slate-800">{engine}</span>
+                    <span className="text-slate-600">
+                      {stats.successCount} ok / {stats.failureCount} fail · {stats.avgDurationMs}ms avg
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Ingestion Settings */}
       <Card title="Ingestion Settings" description="Configure chunking and ingestion behavior">

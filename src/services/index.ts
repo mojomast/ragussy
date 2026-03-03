@@ -55,3 +55,9 @@ export {
   listIngestionJobs,
   type IngestionJob,
 } from './ingestion-queue.js';
+
+export {
+  recordConversionMetric,
+  getConversionMetricsSummary,
+  type ConversionMetricInput,
+} from './conversion-metrics.js';

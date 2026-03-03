@@ -13,12 +13,14 @@ import {
   getConversionFailure,
   getFailureRawAbsolutePath,
   getIngestionJob,
+  getConversionMetricsSummary,
   enqueueIngestionJob,
   listIngestionJobs,
   listConversionFailures,
   markConversionFailureRetried,
   normalizeIntent,
   recordConversionFailure,
+  recordConversionMetric,
   resolveConversionFailure,
   upsertConversionMetadata,
   type ConversionIntent,
@@ -280,14 +282,34 @@ async function convertAndStoreDocument(params: ConvertAndStoreParams): Promise<{
   } | null;
 }> {
   const docsPath = getDocsPath();
-  const converted = await convertDocumentWithIntent(
-    {
-      fileName: params.originalFileName,
-      mimeType: params.sourceMimeType,
-      bytes: params.bytes,
-    },
-    params.intent
-  );
+  const conversionStart = Date.now();
+
+  let converted;
+  try {
+    converted = await convertDocumentWithIntent(
+      {
+        fileName: params.originalFileName,
+        mimeType: params.sourceMimeType,
+        bytes: params.bytes,
+      },
+      params.intent
+    );
+
+    recordConversionMetric({
+      format: converted.sourceFormat,
+      engine: converted.converter,
+      success: true,
+      durationMs: Date.now() - conversionStart,
+    });
+  } catch (error) {
+    recordConversionMetric({
+      format: guessFormatClassFromFileName(params.originalFileName),
+      engine: 'unknown',
+      success: false,
+      durationMs: Date.now() - conversionStart,
+    });
+    throw error;
+  }
 
   const resolved = await resolveConflictPath(docsPath, converted.fileName, params.conflictStrategy);
   const skippedFiles: string[] = [];
@@ -411,6 +433,18 @@ function guessMimeTypeFromFileName(fileName: string): string {
   return 'application/octet-stream';
 }
 
+function guessFormatClassFromFileName(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase();
+  if (['.md', '.mdx', '.markdown'].includes(ext)) return 'md';
+  if (['.txt', '.text', '.log', '.csv', '.tsv', '.json', '.xml', '.yaml', '.yml', '.rst', '.adoc'].includes(ext)) {
+    return 'txt';
+  }
+  if (['.html', '.htm'].includes(ext)) return 'html';
+  if (ext === '.docx') return 'docx';
+  if (ext === '.pdf') return 'pdf';
+  return 'unknown';
+}
+
 // Get document content
 router.get('/content/*', async (req: Request, res: Response) => {
   try {
@@ -445,6 +479,15 @@ router.get('/conversion-metadata/*', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error({ error }, 'Failed to get conversion metadata');
     return res.status(500).json({ error: 'Failed to get conversion metadata' });
+  }
+});
+
+router.get('/conversion-metrics', requireConfiguredAuth, async (_req: Request, res: Response) => {
+  try {
+    return res.json({ metrics: getConversionMetricsSummary() });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get conversion metrics');
+    return res.status(500).json({ error: 'Failed to get conversion metrics' });
   }
 });
 

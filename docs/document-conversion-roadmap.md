@@ -100,7 +100,7 @@ Status: **partially started**
 
 1. 🔄 Snapshot tests for deterministic conversion output (md/html/txt + generated docx/pdf fixtures).
 2. 🔄 Queue-based background ingestion for larger files.
-3. ⏳ Metrics dashboard for conversion success/failure rates and latency by format.
+3. 🔄 Metrics dashboard for conversion success/failure rates and latency by format.
 4. 🔄 Security pass:
    - ✅ stricter write-path auth in bot command workflows
    - ✅ file-type and MIME sanity checks in bot converter path
@@ -121,3 +121,4 @@ Current implementation notes:
   - `GET /api/documents/ingestion-jobs`
   - `GET /api/documents/ingestion-jobs/:id`
 - Root snapshot tests cover deterministic conversion behavior in `src/services/document-conversion.snapshot.test.ts`.
+- Conversion metrics endpoint is available at `GET /api/documents/conversion-metrics` and surfaced in the Documents page.
