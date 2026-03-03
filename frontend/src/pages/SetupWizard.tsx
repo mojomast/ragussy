@@ -237,7 +237,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       const baseUrl = !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.embedBaseUrl) 
         ? customEmbedUrl || config.embedBaseUrl 
         : config.embedBaseUrl
-      const res = await fetch('/api/settings/fetch-models', {
+      const res = await fetch('/api/settings/fetch-embedding-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -248,15 +248,27 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       const data = await res.json()
 
       if (data.success && data.models) {
+        const modelIds: string[] = data.models.map((model: unknown) => {
+          if (typeof model === 'string') {
+            return model
+          }
+
+          if (model && typeof model === 'object' && 'id' in model) {
+            return String((model as { id: string }).id)
+          }
+
+          return ''
+        }).filter(Boolean)
+
         // Filter for embedding models only
-        const embedModels = data.models.filter((m: string) => 
+        const embedModels = modelIds.filter((m: string) => 
           m.includes('embedding') || m.includes('embed') || m.includes('voyage')
         )
         if (embedModels.length > 0) {
           setAvailableEmbedModels(embedModels)
         } else {
           // If no embedding models found, show all (user might be using custom provider)
-          setAvailableEmbedModels(data.models)
+          setAvailableEmbedModels(modelIds)
         }
       }
     } catch (error) {

@@ -27,31 +27,18 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const [apiKey, setApiKey] = useState('')
-  const [apiKeyLoading, setApiKeyLoading] = useState(true)
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('ragussy_api_key') || '')
   const [loadingMoreImages, setLoadingMoreImages] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    // Get actual API key from settings for internal UI use
-    fetch('/api/settings/actual-keys')
-      .then(res => res.json())
-      .then(data => {
-        // We need the chat API key, not the LLM key
-      })
-      .catch(() => {})
-      .finally(() => setApiKeyLoading(false))
-    
-    // Also try to get the API key from settings
-    fetch('/api/settings/chat-api-key')
-      .then(res => res.json())
-      .then(data => {
-        if (data.apiKey) {
-          setApiKey(data.apiKey)
-        }
-      })
-      .catch(() => {})
-  }, [])
+    if (apiKey) {
+      localStorage.setItem('ragussy_api_key', apiKey)
+      return
+    }
+
+    localStorage.removeItem('ragussy_api_key')
+  }, [apiKey])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -158,7 +145,7 @@ export default function Chat() {
         <p className="text-sm text-slate-500">Ask questions about your documentation</p>
       </header>
 
-      {/* API Key Input (temporary for demo) */}
+      {/* API key entry */}
       {!apiKey && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
           <div className="flex items-center gap-3">

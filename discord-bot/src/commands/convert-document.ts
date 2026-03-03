@@ -18,6 +18,7 @@ export const convertDocumentCommand = {
     .setName('convertdoc')
     .setDescription('Convert a document using custom instructions')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDMPermission(false)
     .addAttachmentOption(option =>
       option
         .setName('file')
@@ -98,7 +99,7 @@ export const convertDocumentCommand = {
         timeoutMs: env.INSTRUCTION_PARSE_TIMEOUT_MS,
       });
 
-      const bytes = await downloadAttachment(attachment.url, env.INSTRUCTION_PARSE_TIMEOUT_MS);
+      const bytes = await downloadAttachment(attachment.url, env.ATTACHMENT_DOWNLOAD_TIMEOUT_MS);
       if (bytes.byteLength > maxBytes) {
         throw new Error(`Downloaded file exceeded max size of ${env.MAX_DOC_UPLOAD_MB}MB.`);
       }

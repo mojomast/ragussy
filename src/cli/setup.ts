@@ -342,6 +342,11 @@ LOG_LEVEL=info
   const envPath = path.join(process.cwd(), '.env');
   await fs.writeFile(envPath, envContent);
 
+  // Mark setup as complete so the web app does not re-open onboarding
+  const setupMarkerPath = path.join(process.cwd(), 'data', '.setup-complete');
+  await fs.mkdir(path.dirname(setupMarkerPath), { recursive: true });
+  await fs.writeFile(setupMarkerPath, new Date().toISOString());
+
   console.log(chalk.green.bold('\n✅ Configuration saved to .env\n'));
 
   // Summary

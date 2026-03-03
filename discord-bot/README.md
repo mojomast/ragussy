@@ -54,6 +54,7 @@ BOT_COMMAND_PREFIX=!docs
 BOT_EMBED_COLOR=0x7c3aed
 COOLDOWN_SECONDS=5
 MAX_DOC_UPLOAD_MB=15
+ATTACHMENT_DOWNLOAD_TIMEOUT_MS=10000
 INSTRUCTION_PARSE_TIMEOUT_MS=8000
 LOG_LEVEL=info
 ```
@@ -108,7 +109,8 @@ docker compose --profile with-discord up -d
 | `BOT_COMMAND_PREFIX` | Message command prefix | `!docs` |
 | `BOT_EMBED_COLOR` | Embed color (hex) | `0x7c3aed` |
 | `COOLDOWN_SECONDS` | Rate limit cooldown | `5` |
-| `MAX_DOC_UPLOAD_MB` | Max upload size for `/adddoc` | `15` |
+| `MAX_DOC_UPLOAD_MB` | Max upload size for `/adddoc` and `/convertdoc` | `15` |
+| `ATTACHMENT_DOWNLOAD_TIMEOUT_MS` | Timeout for downloading Discord attachments | `10000` |
 | `INSTRUCTION_PARSE_TIMEOUT_MS` | Timeout for LLM fallback instruction parsing | `8000` |
 | `LOG_LEVEL` | Logging level | `info` |
 

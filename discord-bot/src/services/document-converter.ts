@@ -380,12 +380,16 @@ function isTableLine(line: string): boolean {
 
 function extractSectionsByHeadings(markdown: string, sectionHints: string[]): string | null {
   const lines = markdown.split('\n');
-  const headingIndices: Array<{ index: number; title: string }> = [];
+  const headingIndices: Array<{ index: number; title: string; level: number }> = [];
 
   for (let i = 0; i < lines.length; i += 1) {
-    const match = lines[i].match(/^#{1,6}\s+(.+)$/);
+    const match = lines[i].match(/^(#{1,6})\s+(.+)$/);
     if (match?.[1]) {
-      headingIndices.push({ index: i, title: match[1].trim() });
+      headingIndices.push({
+        index: i,
+        level: match[1].length,
+        title: match[2].trim(),
+      });
     }
   }
 
@@ -407,10 +411,15 @@ function extractSectionsByHeadings(markdown: string, sectionHints: string[]): st
 
     const startIndex = target.index;
     const currentHeadingPosition = headingIndices.findIndex(heading => heading.index === startIndex);
-    const nextHeadingIndex =
-      currentHeadingPosition >= 0 && currentHeadingPosition + 1 < headingIndices.length
-        ? headingIndices[currentHeadingPosition + 1].index
-        : lines.length;
+    let nextHeadingIndex = lines.length;
+    if (currentHeadingPosition >= 0) {
+      for (let i = currentHeadingPosition + 1; i < headingIndices.length; i += 1) {
+        if (headingIndices[i].level <= target.level) {
+          nextHeadingIndex = headingIndices[i].index;
+          break;
+        }
+      }
+    }
 
     selectedSections.push(lines.slice(startIndex, nextHeadingIndex).join('\n').trim());
   }

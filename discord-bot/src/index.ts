@@ -102,19 +102,36 @@ client.on(Events.InteractionCreate, async (interaction: Interaction) => {
 async function handleButtonInteraction(interaction: ButtonInteraction): Promise<void> {
   const customId = interaction.customId;
 
-  if (customId.startsWith('more_images_') || customId.startsWith('more_search_images_')) {
+  if (customId.startsWith('more_images:') || customId.startsWith('more_search_images:')) {
     await handleMoreImagesButton(interaction);
   }
 }
 
 async function handleMoreImagesButton(interaction: ButtonInteraction): Promise<void> {
-  const channelId = interaction.channelId;
-  
-  // Check which type of image request this is
-  const isSearchImages = interaction.customId.startsWith('more_search_images_');
-  const imageData = isSearchImages 
-    ? imageSearchResults.get(channelId)
-    : lastResponseImages.get(channelId);
+  const match = interaction.customId.match(/^(more_search_images|more_images):([^:]+):([^:]+)$/);
+  if (!match) {
+    await interaction.reply({
+      content: 'This image button is malformed. Please run the command again.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const isSearchImages = match[1] === 'more_search_images';
+  const paginationKey = match[2];
+  const ownerId = match[3];
+
+  if (interaction.user.id !== ownerId) {
+    await interaction.reply({
+      content: 'Only the user who requested these images can load more.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const imageData = isSearchImages
+    ? imageSearchResults.get(paginationKey)
+    : lastResponseImages.get(paginationKey);
 
   if (!imageData) {
     await interaction.reply({
@@ -161,9 +178,9 @@ async function handleMoreImagesButton(interaction: ButtonInteraction): Promise<v
     const components: ActionRowBuilder<ButtonBuilder>[] = [];
     if (moreImages.hasMore) {
       const remaining = imageData.total - imageData.shown;
-      const buttonId = isSearchImages 
-        ? `more_search_images_${channelId}`
-        : `more_images_${channelId}`;
+      const buttonId = isSearchImages
+        ? `more_search_images:${paginationKey}:${ownerId}`
+        : `more_images:${paginationKey}:${ownerId}`;
       
       components.push(
         new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -181,14 +198,22 @@ async function handleMoreImagesButton(interaction: ButtonInteraction): Promise<v
       components: components.length > 0 ? components : undefined,
     });
 
+    if (!moreImages.hasMore) {
+      if (isSearchImages) {
+        imageSearchResults.delete(paginationKey);
+      } else {
+        lastResponseImages.delete(paginationKey);
+      }
+    }
+
     logger.info({ 
-      channelId, 
+      paginationKey,
       newImages: moreImages.images.length,
       totalShown: imageData.shown,
       remaining: imageData.total - imageData.shown,
     }, 'Loaded more images');
   } catch (error) {
-    logger.error({ error, channelId }, 'Failed to load more images');
+    logger.error({ error, paginationKey }, 'Failed to load more images');
     await interaction.followUp({
       content: "Had trouble loading more images. Try again?",
       ephemeral: true,
@@ -267,7 +292,9 @@ client.on(Events.MessageCreate, async (message: Message) => {
 
       // Store for "more images" if there are more
       if ((response.totalImages || 0) > 3) {
-        lastResponseImages.set(channelId, {
+        const paginationKey = message.id;
+        lastResponseImages.set(paginationKey, {
+          ownerId: userId,
           conversationId: response.conversationId,
           shown: 3,
           total: response.totalImages || images.length,
@@ -275,7 +302,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
 
         const moreButton = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
-            .setCustomId(`more_images_${channelId}`)
+            .setCustomId(`more_images:${paginationKey}:${userId}`)
             .setLabel(`More images (${(response.totalImages || 0) - 3} more)`)
             .setStyle(ButtonStyle.Secondary)
             .setEmoji('🖼️')

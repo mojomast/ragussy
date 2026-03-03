@@ -81,6 +81,36 @@ test('extracts requested sections from markdown headings', async () => {
   assert.ok(!result.markdown.includes('## Intro'));
 });
 
+test('extracting parent heading keeps nested subsection content', async () => {
+  const markdown = [
+    '# Title',
+    '',
+    '## API',
+    'Base API section.',
+    '',
+    '### API Details',
+    'Nested section content.',
+    '',
+    '## Other',
+    'Other section.',
+  ].join('\n');
+
+  const result = await convertDocumentWithIntent(
+    {
+      fileName: 'nested.md',
+      mimeType: 'text/markdown',
+      bytes: encoder.encode(markdown),
+    },
+    normalizeIntent({
+      operation: 'extract_sections',
+      notes: ['section_hint:API'],
+    })
+  );
+
+  assert.ok(result.markdown.includes('### API Details'));
+  assert.ok(!result.markdown.includes('## Other'));
+});
+
 test('uses provided summarizer for summarize operation', async () => {
   let summarizeCalls = 0;
   const result = await convertDocumentWithIntent(

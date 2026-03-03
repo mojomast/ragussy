@@ -172,11 +172,7 @@ export default function SettingsPage() {
     try {
       const res = await fetch('/api/settings')
       const data = await res.json()
-      
-      // Store the actual (unmasked) API keys separately for API calls
-      const actualKeysRes = await fetch('/api/settings/actual-keys')
-      const actualKeys = await actualKeysRes.json()
-      
+
       // Ensure all forum fields have defaults to prevent controlled/uncontrolled warnings
       const settingsWithDefaults = {
         ...data,
@@ -193,9 +189,6 @@ export default function SettingsPage() {
         forumTimeDecayHalfLife: data.forumTimeDecayHalfLife || 365,
         forumMaxPostsPerThread: data.forumMaxPostsPerThread || 10,
         forumRetrievalCount: data.forumRetrievalCount || 30,
-        // Internal keys
-        _actualLlmApiKey: actualKeys.llmApiKey || '',
-        _actualEmbedApiKey: actualKeys.embedApiKey || '',
       }
       
       setSettings(settingsWithDefaults as any)
@@ -288,18 +281,21 @@ export default function SettingsPage() {
       return
     }
 
+    if (settings.llmApiKey.startsWith('••••')) {
+      toast('error', 'Re-enter your full LLM API key to fetch models')
+      return
+    }
+
     setFetchingModels(true)
     try {
       const baseUrl = settings.llmBaseUrl === 'custom' ? customLlmUrl : settings.llmBaseUrl
-      // Use actual unmasked key if available, otherwise use the displayed value
-      const actualKey = (settings as any)._actualLlmApiKey || settings.llmApiKey
-      
+
       const res = await fetch('/api/settings/fetch-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           baseUrl,
-          apiKey: actualKey
+          apiKey: settings.llmApiKey
         }),
       })
       const data = await res.json()
@@ -323,17 +319,21 @@ export default function SettingsPage() {
       return
     }
 
+    if (settings.embedApiKey.startsWith('••••')) {
+      toast('error', 'Re-enter your full embedding API key to fetch embedding models')
+      return
+    }
+
     setFetchingEmbedModels(true)
     try {
       const baseUrl = settings.embedBaseUrl === 'custom' ? customEmbedUrl : settings.embedBaseUrl
-      const actualKey = (settings as any)._actualEmbedApiKey || settings.embedApiKey
-      
+
       const res = await fetch('/api/settings/fetch-embedding-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           baseUrl,
-          apiKey: actualKey
+          apiKey: settings.embedApiKey
         }),
       })
       const data = await res.json()
@@ -1001,7 +1001,7 @@ export default function SettingsPage() {
             <button onClick={() => setApiEndpoint('/api/health')} className="text-primary-600 hover:underline">/api/health</button>{' · '}
             <button onClick={() => setApiEndpoint('/api/settings')} className="text-primary-600 hover:underline">/api/settings</button>{' · '}
             <button onClick={() => setApiEndpoint('/api/documents')} className="text-primary-600 hover:underline">/api/documents</button>{' · '}
-            <button onClick={() => setApiEndpoint('/api/documents/stats')} className="text-primary-600 hover:underline">/api/documents/stats</button>
+            <button onClick={() => setApiEndpoint('/api/documents/ingestion-status')} className="text-primary-600 hover:underline">/api/documents/ingestion-status</button>
           </div>
         </div>
       </Card>

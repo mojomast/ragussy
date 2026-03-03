@@ -140,6 +140,8 @@ API_KEY=your-api-key
 ADMIN_TOKEN=your-admin-token
 ```
 
+Important: API secrets are write-only in the UI after setup. Save your `API_KEY` and `ADMIN_TOKEN` securely when generated.
+
 ### Supported LLM Providers
 
 | Provider | Base URL |

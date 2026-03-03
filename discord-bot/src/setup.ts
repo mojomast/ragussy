@@ -78,6 +78,12 @@ async function setup() {
   const uploadSize = await question(`Max upload size for /adddoc and /convertdoc in MB [${defaultUploadSize}]: `);
   config.MAX_DOC_UPLOAD_MB = uploadSize || defaultUploadSize;
 
+  const defaultAttachmentTimeoutMs = '10000';
+  const attachmentTimeoutMs = await question(
+    `Attachment download timeout in ms [${defaultAttachmentTimeoutMs}]: `
+  );
+  config.ATTACHMENT_DOWNLOAD_TIMEOUT_MS = attachmentTimeoutMs || defaultAttachmentTimeoutMs;
+
   const defaultParseTimeoutMs = '8000';
   const parseTimeoutMs = await question(
     `Instruction parser LLM timeout in ms [${defaultParseTimeoutMs}]: `
@@ -109,6 +115,7 @@ COOLDOWN_SECONDS=${config.COOLDOWN_SECONDS}
 
 # Document uploads
 MAX_DOC_UPLOAD_MB=${config.MAX_DOC_UPLOAD_MB}
+ATTACHMENT_DOWNLOAD_TIMEOUT_MS=${config.ATTACHMENT_DOWNLOAD_TIMEOUT_MS}
 INSTRUCTION_PARSE_TIMEOUT_MS=${config.INSTRUCTION_PARSE_TIMEOUT_MS}
 
 # Logging

@@ -290,32 +290,6 @@ router.get('/', async (_req: Request, res: Response) => {
   }
 });
 
-// Get actual unmasked API keys (for making API calls)
-router.get('/actual-keys', async (_req: Request, res: Response) => {
-  try {
-    const env = await parseEnvFile();
-    
-    return res.json({
-      llmApiKey: env.LLM_API_KEY || '',
-      embedApiKey: env.EMBED_API_KEY || '',
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to get actual keys');
-    return res.status(500).json({ error: 'Failed to get keys' });
-  }
-});
-
-// Get chat API key (for internal UI use)
-router.get('/chat-api-key', async (_req: Request, res: Response) => {
-  try {
-    const env = await parseEnvFile();
-    return res.json({ apiKey: env.API_KEY || '' });
-  } catch (error) {
-    logger.error({ error }, 'Failed to get chat API key');
-    return res.status(500).json({ error: 'Failed to get key' });
-  }
-});
-
 // Update settings
 router.put('/', async (req: Request, res: Response) => {
   try {

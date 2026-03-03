@@ -14,8 +14,8 @@ const envSchema = z.object({
   RAG_API_KEY: z.string().min(1, 'RAG API key is required'),
 
   // Bot customization
-  BOT_NAME: z.string().default('Forum Bot'),
-  BOT_COMMAND_PREFIX: z.string().default('!ask'),
+  BOT_NAME: z.string().default('Docs Bot'),
+  BOT_COMMAND_PREFIX: z.string().default('!docs'),
   BOT_EMBED_COLOR: z.string().default('0x7c3aed').transform(val => parseInt(val, 16)),
   
   // Forum mode settings
@@ -23,6 +23,7 @@ const envSchema = z.object({
   BOT_PERSONALITY: z.string().default('casual'), // casual, formal, friendly
   MAX_IMAGES_PER_RESPONSE: z.coerce.number().default(4),
   MAX_DOC_UPLOAD_MB: z.coerce.number().default(15),
+  ATTACHMENT_DOWNLOAD_TIMEOUT_MS: z.coerce.number().default(10000),
   INSTRUCTION_PARSE_TIMEOUT_MS: z.coerce.number().default(8000),
 
   // Rate limiting

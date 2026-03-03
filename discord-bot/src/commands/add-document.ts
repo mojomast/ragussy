@@ -12,6 +12,7 @@ export const addDocumentCommand = {
     .setName('adddoc')
     .setDescription('Upload a file, convert it to markdown, and index it')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDMPermission(false)
     .addAttachmentOption(option =>
       option
         .setName('file')
@@ -71,12 +72,10 @@ export const addDocumentCommand = {
         'Processing /adddoc upload'
       );
 
-      const downloadResponse = await fetch(attachment.url);
-      if (!downloadResponse.ok) {
-        throw new Error(`Failed to download attachment (${downloadResponse.status})`);
+      const bytes = await downloadAttachment(attachment.url, env.ATTACHMENT_DOWNLOAD_TIMEOUT_MS);
+      if (bytes.byteLength > maxBytes) {
+        throw new Error(`Downloaded file exceeded max size of ${env.MAX_DOC_UPLOAD_MB}MB.`);
       }
-
-      const bytes = new Uint8Array(await downloadResponse.arrayBuffer());
       const converted = await convertDocument({
         fileName: attachment.name,
         mimeType: attachment.contentType,
@@ -132,3 +131,24 @@ export const addDocumentCommand = {
     }
   },
 };
+
+async function downloadAttachment(url: string, timeoutMs: number): Promise<Uint8Array> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Failed to download attachment (${response.status})`);
+    }
+
+    return new Uint8Array(await response.arrayBuffer());
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Attachment download timed out after ${timeoutMs}ms.`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}

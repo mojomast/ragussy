@@ -10,12 +10,15 @@ import { env, logger } from '../config/index.js';
 import { ragApi, type ImageResult } from '../services/index.js';
 
 // Store for pagination
-const imageSearchResults = new Map<string, { 
-  conversationId: string; 
-  query: string;
-  shown: number; 
-  total: number;
-}>();
+const imageSearchResults = new Map<
+  string,
+  {
+    ownerId: string;
+    conversationId: string;
+    shown: number;
+    total: number;
+  }
+>();
 
 export const imagesCommand = {
   data: new SlashCommandBuilder()
@@ -70,13 +73,7 @@ export const imagesCommand = {
         return;
       }
 
-      // Store for pagination
-      imageSearchResults.set(channelId, {
-        conversationId: response.conversationId,
-        query: topic,
-        shown: Math.min(count, images.length),
-        total: totalImages,
-      });
+      const paginationKey = interaction.id;
 
       // Create header embed
       const headerEmbed = new EmbedBuilder()
@@ -103,8 +100,8 @@ export const imagesCommand = {
       if (totalImages > count) {
         const moreImagesRow = new ActionRowBuilder<ButtonBuilder>()
           .addComponents(
-            new ButtonBuilder()
-              .setCustomId(`more_search_images_${channelId}`)
+              new ButtonBuilder()
+              .setCustomId(`more_search_images:${paginationKey}:${userId}`)
               .setLabel(`Load more (${totalImages - count} remaining)`)
               .setStyle(ButtonStyle.Primary)
               .setEmoji('📸')
@@ -116,6 +113,15 @@ export const imagesCommand = {
         embeds: [headerEmbed, ...imageEmbeds],
         components: components.length > 0 ? components : undefined,
       });
+
+      if (totalImages > count) {
+        imageSearchResults.set(paginationKey, {
+          ownerId: userId,
+          conversationId: response.conversationId,
+          shown: Math.min(count, images.length),
+          total: totalImages,
+        });
+      }
 
       logger.info({ 
         userId, 

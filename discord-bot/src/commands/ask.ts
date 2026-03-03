@@ -5,7 +5,6 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  AttachmentBuilder,
 } from 'discord.js';
 import { env, logger } from '../config/index.js';
 import { ragApi, type Source, type ImageResult } from '../services/index.js';
@@ -14,7 +13,15 @@ import { ragApi, type Source, type ImageResult } from '../services/index.js';
 const channelConversations = new Map<string, string>();
 
 // Store last response images for "more images" button
-const lastResponseImages = new Map<string, { conversationId: string; shown: number; total: number }>();
+const lastResponseImages = new Map<
+  string,
+  {
+    ownerId: string;
+    conversationId: string;
+    shown: number;
+    total: number;
+  }
+>();
 
 export const askCommand = {
   data: new SlashCommandBuilder()
@@ -76,12 +83,7 @@ export const askCommand = {
       const totalImages = response.totalImages || images.length;
       
       if (showImages && images.length > 0) {
-        // Store for "more images" functionality
-        lastResponseImages.set(channelId, {
-          conversationId: response.conversationId,
-          shown: Math.min(images.length, env.MAX_IMAGES_PER_RESPONSE),
-          total: totalImages,
-        });
+        const paginationKey = interaction.id;
 
         // Create image embeds (Discord allows up to 10 embeds per message)
         const imageEmbeds = createImageEmbeds(images.slice(0, env.MAX_IMAGES_PER_RESPONSE));
@@ -91,7 +93,7 @@ export const askCommand = {
           const moreImagesRow = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
               new ButtonBuilder()
-                .setCustomId(`more_images_${channelId}`)
+                .setCustomId(`more_images:${paginationKey}:${userId}`)
                 .setLabel(`Show more images (${totalImages - env.MAX_IMAGES_PER_RESPONSE} remaining)`)
                 .setStyle(ButtonStyle.Secondary)
                 .setEmoji('🖼️')
@@ -103,6 +105,15 @@ export const askCommand = {
           embeds: [embed, ...imageEmbeds],
           components: components.length > 0 ? components : undefined,
         });
+
+        if (totalImages > env.MAX_IMAGES_PER_RESPONSE) {
+          lastResponseImages.set(paginationKey, {
+            ownerId: userId,
+            conversationId: response.conversationId,
+            shown: Math.min(images.length, env.MAX_IMAGES_PER_RESPONSE),
+            total: totalImages,
+          });
+        }
       } else {
         await interaction.editReply({
           embeds: [embed],
