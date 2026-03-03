@@ -6,6 +6,7 @@ import Card from '@/components/Card'
 import Input from '@/components/Input'
 import { useToast } from '@/components/Toast'
 import { formatBytes, formatDate } from '@/lib/utils'
+import { apiFetch } from '@/lib/api'
 
 interface Document {
   name: string
@@ -30,6 +31,19 @@ interface ConsoleLog {
   message: string
 }
 
+interface ConversionMetadataRecord {
+  filePath: string
+  originalFileName: string
+  sourceMimeType: string
+  sourceFormat: string
+  converter: string
+  warnings: string[]
+  ignoredInstructions: string[]
+  appliedActions: string[]
+  checksumSha256: string
+  convertedAt: string
+}
+
 export default function Documents() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [docsPath, setDocsPath] = useState('')
@@ -43,6 +57,8 @@ export default function Documents() {
   const [showConsole, setShowConsole] = useState(false)
   const [ingestionProgress, setIngestionProgress] = useState({ current: 0, total: 0 })
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set())
+  const [conversionMetadata, setConversionMetadata] = useState<ConversionMetadataRecord | null>(null)
+  const [metadataLoadingPath, setMetadataLoadingPath] = useState<string | null>(null)
   const consoleEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
 
@@ -86,7 +102,7 @@ export default function Documents() {
 
   const fetchDocuments = async () => {
     try {
-      const res = await fetch('/api/documents')
+      const res = await apiFetch('/api/documents')
       const data = await res.json()
       setDocuments(data.documents || [])
       setDocsPath(data.docsPath || '')
@@ -99,7 +115,7 @@ export default function Documents() {
 
   const fetchIngestionStatus = async () => {
     try {
-      const res = await fetch('/api/documents/ingestion-status')
+      const res = await apiFetch('/api/documents/ingestion-status')
       const data = await res.json()
       setIngestionStatus(data)
     } catch {
@@ -120,7 +136,7 @@ export default function Documents() {
     formData.append('file', acceptedFiles[0])
 
     try {
-      const res = await fetch('/api/documents/upload', {
+      const res = await apiFetch('/api/documents/upload', {
         method: 'POST',
         body: formData,
       })
@@ -162,7 +178,7 @@ export default function Documents() {
 
   const handleSingleIngest = async (full: boolean) => {
     try {
-      const res = await fetch('/api/documents/ingest', {
+      const res = await apiFetch('/api/documents/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full }),
@@ -209,7 +225,7 @@ export default function Documents() {
       while (true) {
         addConsoleLog('info', `Processing batch starting at chunk ${startIndex}...`)
         
-        const res = await fetch('/api/documents/ingest', {
+        const res = await apiFetch('/api/documents/ingest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -274,7 +290,7 @@ export default function Documents() {
     addConsoleLog('info', `Starting selective ingestion for ${selectedDocs.size} file(s)`)
 
     try {
-      const res = await fetch('/api/documents/ingest', {
+      const res = await apiFetch('/api/documents/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -316,7 +332,7 @@ export default function Documents() {
     if (!confirm('Delete this document?')) return
 
     try {
-      const res = await fetch(`/api/documents/${path}`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/documents/${path}`, { method: 'DELETE' })
       if (res.ok) {
         toast('success', 'Document deleted')
         fetchDocuments()
@@ -325,6 +341,25 @@ export default function Documents() {
       }
     } catch {
       toast('error', 'Failed to delete')
+    }
+  }
+
+  const handleViewConversionReport = async (filePath: string) => {
+    setMetadataLoadingPath(filePath)
+    try {
+      const res = await apiFetch(`/api/documents/conversion-metadata/${encodeURIComponent(filePath)}`)
+      const data = await res.json()
+
+      if (res.ok && data.metadata) {
+        setConversionMetadata(data.metadata)
+      } else {
+        setConversionMetadata(null)
+        toast('error', data.error || 'No conversion report found for this file')
+      }
+    } catch {
+      toast('error', 'Failed to load conversion report')
+    } finally {
+      setMetadataLoadingPath(null)
     }
   }
 
@@ -582,6 +617,14 @@ export default function Documents() {
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => handleViewConversionReport(doc.relativePath)}
+                    loading={metadataLoadingPath === doc.relativePath}
+                  >
+                    Report
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleDelete(doc.relativePath)}
                   >
                     <Trash2 size={16} className="text-red-500" />
@@ -592,6 +635,53 @@ export default function Documents() {
           </div>
         )}
       </Card>
+
+      {conversionMetadata && (
+        <Card
+          title="Conversion Report"
+          description={`Latest conversion metadata for ${conversionMetadata.filePath}`}
+          actions={
+            <Button variant="ghost" size="sm" onClick={() => setConversionMetadata(null)}>
+              <X size={14} />
+            </Button>
+          }
+        >
+          <div className="space-y-3 text-sm">
+            <p><strong>Original file:</strong> {conversionMetadata.originalFileName}</p>
+            <p><strong>Source format:</strong> {conversionMetadata.sourceFormat}</p>
+            <p><strong>Source MIME:</strong> {conversionMetadata.sourceMimeType}</p>
+            <p><strong>Converter:</strong> {conversionMetadata.converter}</p>
+            <p><strong>Converted at:</strong> {formatDate(conversionMetadata.convertedAt)}</p>
+            <p><strong>Checksum (sha256):</strong> <code>{conversionMetadata.checksumSha256}</code></p>
+
+            <div>
+              <p className="font-medium text-slate-700">Applied Actions</p>
+              {conversionMetadata.appliedActions.length === 0 ? (
+                <p className="text-slate-500">None</p>
+              ) : (
+                <ul className="list-disc pl-5 text-slate-700">
+                  {conversionMetadata.appliedActions.map(action => (
+                    <li key={action}>{action}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <p className="font-medium text-slate-700">Warnings</p>
+              {conversionMetadata.warnings.length === 0 ? (
+                <p className="text-slate-500">None</p>
+              ) : (
+                <ul className="list-disc pl-5 text-amber-700">
+                  {conversionMetadata.warnings.map(warning => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }

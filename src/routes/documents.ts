@@ -6,6 +6,7 @@ import multer from 'multer';
 import AdmZip from 'adm-zip';
 import { logger, getDocsPath, getDocsExtensions, getRuntimeSecurityConfig } from '../config/index.js';
 import { ingestIncremental, ingestFull, ingestFullPartial, ingestSelected, getAllFileStates } from '../ingestion/index.js';
+import { requireConfiguredAuth } from '../middleware/route-auth.js';
 import {
   convertDocumentWithIntent,
   getConversionMetadata,
@@ -296,7 +297,7 @@ router.get('/conversion-metadata/*', async (req: Request, res: Response) => {
 });
 
 // Upload documents (single file or zip)
-router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload', requireConfiguredAuth, upload.single('file'), async (req: Request, res: Response) => {
   let uploadedPath = '';
 
   try {
@@ -390,16 +391,10 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 });
 
 // Convert + upload in one request (for Discord bot and future UI use)
-router.post('/convert-upload', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/convert-upload', requireConfiguredAuth, upload.single('file'), async (req: Request, res: Response) => {
   let uploadedPath = '';
 
   try {
-    const runtimeSecurity = await getRuntimeSecurityConfig();
-    const apiKey = req.headers['x-api-key'];
-    if (!runtimeSecurity.apiKey || !apiKey || apiKey !== runtimeSecurity.apiKey) {
-      return res.status(403).json({ error: 'Invalid API key' });
-    }
-
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
@@ -499,7 +494,7 @@ router.post('/convert-upload', upload.single('file'), async (req: Request, res: 
 });
 
 // Delete a document
-router.delete('/*', async (req: Request, res: Response) => {
+router.delete('/*', requireConfiguredAuth, async (req: Request, res: Response) => {
   try {
     const relativePath = req.params[0];
     const docsPath = getDocsPath();
@@ -520,7 +515,7 @@ router.delete('/*', async (req: Request, res: Response) => {
 });
 
 // Trigger ingestion
-router.post('/ingest', async (req: Request, res: Response) => {
+router.post('/ingest', requireConfiguredAuth, async (req: Request, res: Response) => {
   try {
     const { full, partial, maxChunksPerBatch, startIndex, selectedFiles } = req.body;
     

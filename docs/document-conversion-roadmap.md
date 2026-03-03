@@ -41,12 +41,12 @@ For Ragussy backend/bot use, this means we should first ship practical Node-nati
 
 ## Phase 1: Hardening Discord ingestion
 
-Status: **mostly complete**
+Status: **complete**
 
 1. ✅ Add conversion telemetry to bot logs (source format, conversion duration, warning counts).
 2. ✅ Add duplicate handling strategy (`replace`, `rename`, `skip`) exposed as command options.
 3. ✅ Add post-upload preview command (`/docpreview`) to inspect extracted markdown before ingest.
-4. ⏳ Add OCR fallback for scanned PDFs.
+4. ✅ Add OCR fallback for scanned PDFs (optional; requires OCR binaries and env flag).
 
 ## Phase 2: Shared conversion service in backend
 
@@ -66,7 +66,7 @@ Current implementation notes:
 
 ## Phase 3: Integrate `convert` as an optional engine
 
-Status: **not started**
+Status: **partially started**
 
 1. Add converter-engine abstraction:
    - `node-native` (default)
@@ -81,11 +81,11 @@ Status: **not started**
 
 1. Add "Convert on upload" toggle to Documents page.
 2. Add supported-format badges and max-size hints in uploader UX.
-3. Show conversion report panel after upload:
-   - extracted title
-   - converter used
-   - warnings
-   - ingest result
+3. 🔄 Show conversion report panel after upload:
+    - extracted title
+    - converter used
+    - warnings
+    - ingest result
 4. Add retry action for failed conversions and save raw file for later reprocessing.
 5. Add bulk zip conversion mode with per-file status table.
 
@@ -100,12 +100,12 @@ Status: **partially started**
    - ✅ stricter write-path auth in bot command workflows
    - ✅ file-type and MIME sanity checks in bot converter path
    - ✅ zip bomb protection in backend upload pipeline (entry count and uncompressed-size guards)
-   - ⏳ stricter auth coverage for backend write routes (`/api/documents`, `/api/vectors`, `/api/settings`)
+   - ✅ stricter auth coverage for backend write routes (`/api/documents`, `/api/vectors`, `/api/settings`) with setup-time bypass
 
 ## Recommended Next Slice
 
 To maximize impact quickly, the next implementation slice should be:
 
 1. Phase 2 items 1-3 (shared backend conversion service + `convert-upload` endpoint + bot delegation).
-2. Phase 1 item 4 (OCR fallback for scanned PDFs).
-3. Phase 5 security remaining items (backend route auth coverage + zip upload hardening).
+2. Phase 4 conversion UX completion (report details + retry + bulk conversion status).
+3. Phase 5 reliability items (snapshot tests, queue-based ingestion, metrics dashboard).

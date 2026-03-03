@@ -5,6 +5,7 @@ import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Input from '@/components/Input'
 import { useToast } from '@/components/Toast'
+import { apiFetch } from '@/lib/api'
 
 interface ApiLogEntry {
   id: string
@@ -170,7 +171,7 @@ export default function SettingsPage() {
 
   const fetchSettings = async () => {
     try {
-      const res = await fetch('/api/settings')
+      const res = await apiFetch('/api/settings')
       const data = await res.json()
 
       // Ensure all forum fields have defaults to prevent controlled/uncontrolled warnings
@@ -230,7 +231,7 @@ export default function SettingsPage() {
         forumEmbeddingModel: settings.forumEmbeddingModel,
       })
       
-      const res = await fetch('/api/settings', {
+      const res = await apiFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
@@ -251,7 +252,7 @@ export default function SettingsPage() {
 
   const resetSetupWizard = async () => {
     try {
-      await fetch('/api/settings/reset-setup', { method: 'POST' })
+      await apiFetch('/api/settings/reset-setup', { method: 'POST' })
       window.location.reload()
     } catch {
       toast('error', 'Failed to reset setup')
@@ -260,7 +261,7 @@ export default function SettingsPage() {
 
   const generateToken = async (field: 'apiKey' | 'adminToken') => {
     try {
-      const res = await fetch('/api/settings/generate-token', { method: 'POST' })
+      const res = await apiFetch('/api/settings/generate-token', { method: 'POST' })
       const data = await res.json()
       updateSetting(field, data.token)
       toast('success', 'New token generated')
@@ -290,7 +291,7 @@ export default function SettingsPage() {
     try {
       const baseUrl = settings.llmBaseUrl === 'custom' ? customLlmUrl : settings.llmBaseUrl
 
-      const res = await fetch('/api/settings/fetch-models', {
+      const res = await apiFetch('/api/settings/fetch-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -328,7 +329,7 @@ export default function SettingsPage() {
     try {
       const baseUrl = settings.embedBaseUrl === 'custom' ? customEmbedUrl : settings.embedBaseUrl
 
-      const res = await fetch('/api/settings/fetch-embedding-models', {
+      const res = await apiFetch('/api/settings/fetch-embedding-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -469,7 +470,7 @@ export default function SettingsPage() {
     formData.append('file', acceptedFiles[0])
 
     try {
-      const res = await fetch('/api/documents/upload', {
+      const res = await apiFetch('/api/documents/upload', {
         method: 'POST',
         body: formData,
       })

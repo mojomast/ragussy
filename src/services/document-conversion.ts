@@ -1,7 +1,11 @@
 import path from 'path';
+import fs from 'fs/promises';
+import os from 'os';
+import { execFile } from 'node:child_process';
 import mammoth from 'mammoth';
 import pdfParse from 'pdf-parse';
 import TurndownService from 'turndown';
+import { env, logger } from '../config/index.js';
 import {
   normalizeIntent,
   type ConversionIntent,
@@ -99,6 +103,89 @@ function unsupportedFormatError(ext: string, mimeType?: string | null): never {
     `Unsupported document format: ${ext || 'unknown'}${hint}. ` +
       'Supported formats: .md, .txt, .html, .docx, .pdf'
   );
+}
+
+async function runCommand(command: string, args: string[], timeoutMs: number): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    execFile(command, args, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      if (stderr && stderr.trim().length > 0) {
+        logger.debug({ command, stderr }, 'Command wrote to stderr');
+      }
+
+      resolve(stdout);
+    });
+  });
+}
+
+async function runPdfOcrFallback(pdfBuffer: Buffer): Promise<{ text: string; warnings: string[] }> {
+  const warnings: string[] = [];
+
+  if (!env.OCR_FALLBACK_ENABLED) {
+    return { text: '', warnings };
+  }
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ragussy-ocr-'));
+  const inputPdfPath = path.join(tempDir, 'input.pdf');
+  const pagePrefix = path.join(tempDir, 'page');
+
+  try {
+    await fs.writeFile(inputPdfPath, pdfBuffer);
+
+    try {
+      await runCommand(
+        'pdftoppm',
+        ['-f', '1', '-l', String(env.OCR_MAX_PAGES), '-png', inputPdfPath, pagePrefix],
+        env.OCR_COMMAND_TIMEOUT_MS
+      );
+    } catch (error) {
+      warnings.push('OCR fallback unavailable: pdftoppm command failed or is not installed.');
+      return { text: '', warnings };
+    }
+
+    const files = await fs.readdir(tempDir);
+    const pageImages = files
+      .filter(file => /^page-\d+\.png$/i.test(file))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+    if (pageImages.length === 0) {
+      warnings.push('OCR fallback produced no page images from PDF.');
+      return { text: '', warnings };
+    }
+
+    const textParts: string[] = [];
+    for (const imageFile of pageImages) {
+      const imagePath = path.join(tempDir, imageFile);
+      try {
+        const ocrText = await runCommand(
+          'tesseract',
+          [imagePath, 'stdout', '-l', 'eng'],
+          env.OCR_COMMAND_TIMEOUT_MS
+        );
+        if (ocrText.trim().length > 0) {
+          textParts.push(ocrText.trim());
+        }
+      } catch {
+        warnings.push(`OCR failed for ${imageFile}.`);
+      }
+    }
+
+    if (textParts.length === 0) {
+      warnings.push('OCR fallback ran but extracted no text.');
+      return { text: '', warnings };
+    }
+
+    return {
+      text: textParts.join('\n\n'),
+      warnings,
+    };
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 function isLikelyTextMime(mimeType?: string | null): boolean {
@@ -211,14 +298,26 @@ export async function convertDocument(input: RawDocumentInput): Promise<Converte
 
   if (ext === '.pdf' || mimeType === 'application/pdf') {
     const parsed = await pdfParse(Buffer.from(input.bytes));
-    const markdown = parsed.text.trim();
+    let markdown = parsed.text.trim();
+    const warnings: string[] = [];
 
     if (!markdown) {
+      const ocr = await runPdfOcrFallback(Buffer.from(input.bytes));
+      warnings.push(...ocr.warnings);
+
+      if (ocr.text.trim()) {
+        markdown = ocr.text.trim();
+        warnings.push('Used OCR fallback for PDF text extraction.');
+      }
+    }
+
+    if (!markdown) {
+      warnings.push('PDF text extraction returned empty content (possibly scanned/image-only PDF).');
       return {
         fileName: outputName,
         markdown: '',
         sourceFormat: 'pdf',
-        warnings: ['PDF text extraction returned empty content (possibly scanned/image-only PDF).'],
+        warnings,
       };
     }
 
@@ -226,7 +325,7 @@ export async function convertDocument(input: RawDocumentInput): Promise<Converte
       fileName: outputName,
       markdown,
       sourceFormat: 'pdf',
-      warnings: [],
+      warnings,
     };
   }
 

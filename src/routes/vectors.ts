@@ -7,6 +7,7 @@ import {
   ensureCollection 
 } from '../services/index.js';
 import { clearAllState } from '../ingestion/index.js';
+import { requireConfiguredAuth } from '../middleware/route-auth.js';
 
 const router: Router = Router();
 
@@ -79,7 +80,7 @@ router.get('/collections', async (_req: Request, res: Response) => {
 });
 
 // Create collection
-router.post('/collections', async (req: Request, res: Response) => {
+router.post('/collections', requireConfiguredAuth, async (req: Request, res: Response) => {
   try {
     const { name, vectorSize } = req.body;
     
@@ -104,7 +105,7 @@ router.post('/collections', async (req: Request, res: Response) => {
 });
 
 // Delete collection
-router.delete('/collections/:name', async (req: Request, res: Response) => {
+router.delete('/collections/:name', requireConfiguredAuth, async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
     const qdrant = getQdrantClient();
@@ -125,7 +126,7 @@ router.delete('/collections/:name', async (req: Request, res: Response) => {
 });
 
 // Clear all vectors in current collection
-router.post('/clear', async (_req: Request, res: Response) => {
+router.post('/clear', requireConfiguredAuth, async (_req: Request, res: Response) => {
   try {
     const qdrant = getQdrantClient();
     const collectionName = env.QDRANT_COLLECTION;
@@ -149,7 +150,7 @@ router.post('/clear', async (_req: Request, res: Response) => {
 });
 
 // Search vectors (for debugging)
-router.post('/search', async (req: Request, res: Response) => {
+router.post('/search', requireConfiguredAuth, async (req: Request, res: Response) => {
   try {
     const { query, limit = 5 } = req.body;
     

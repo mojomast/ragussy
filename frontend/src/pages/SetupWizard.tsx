@@ -5,6 +5,7 @@ import Button from '@/components/Button'
 import Input from '@/components/Input'
 import Card from '@/components/Card'
 import { cn } from '@/lib/utils'
+import { apiFetch } from '@/lib/api'
 
 interface SetupWizardProps {
   onComplete: () => void
@@ -98,7 +99,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     formData.append('file', acceptedFiles[0])
 
     try {
-      const res = await fetch('/api/documents/upload', {
+      const res = await apiFetch('/api/documents/upload', {
         method: 'POST',
         body: formData,
       })
@@ -134,7 +135,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     const apiKey = type === 'llm' ? config.llmApiKey : config.embedApiKey
     
     try {
-      const res = await fetch('/api/settings/test-api-key', {
+      const res = await apiFetch('/api/settings/test-api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ baseUrl, apiKey, type }),
@@ -200,7 +201,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     setFetchingModels(true)
     try {
       const baseUrl = config.llmBaseUrl === 'custom' ? customLlmUrl : config.llmBaseUrl
-      const res = await fetch('/api/settings/fetch-models', {
+      const res = await apiFetch('/api/settings/fetch-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -237,7 +238,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       const baseUrl = !['https://api.openai.com/v1', 'https://openrouter.ai/api/v1', 'https://router.requesty.ai/v1'].includes(config.embedBaseUrl) 
         ? customEmbedUrl || config.embedBaseUrl 
         : config.embedBaseUrl
-      const res = await fetch('/api/settings/fetch-embedding-models', {
+      const res = await apiFetch('/api/settings/fetch-embedding-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -279,7 +280,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   }
 
   const generateToken = async (field: string) => {
-    const res = await fetch('/api/settings/generate-token', { method: 'POST' })
+    const res = await apiFetch('/api/settings/generate-token', { method: 'POST' })
     const data = await res.json()
     updateConfig(field, data.token)
   }
@@ -322,14 +323,16 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     setLoading(true)
     try {
       // Generate security tokens
-      const apiKeyRes = await fetch('/api/settings/generate-token', { method: 'POST' })
+      const apiKeyRes = await apiFetch('/api/settings/generate-token', { method: 'POST' })
       const apiKeyData = await apiKeyRes.json()
       
-      const adminTokenRes = await fetch('/api/settings/generate-token', { method: 'POST' })
+      const adminTokenRes = await apiFetch('/api/settings/generate-token', { method: 'POST' })
       const adminTokenData = await adminTokenRes.json()
+
+      localStorage.setItem('ragussy_api_key', apiKeyData.token)
       
       // Save settings
-      const res = await fetch('/api/settings', {
+      const res = await apiFetch('/api/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -341,7 +344,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
       
       if (res.ok) {
         // Mark setup as complete
-        await fetch('/api/settings/complete-setup', { method: 'POST' })
+        await apiFetch('/api/settings/complete-setup', { method: 'POST' })
         onComplete()
       }
     } catch (error) {

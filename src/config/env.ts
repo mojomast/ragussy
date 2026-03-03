@@ -55,6 +55,9 @@ const envSchema = z.object({
   // Optional
   REDIS_URL: z.string().optional(),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+  OCR_FALLBACK_ENABLED: z.string().default('false').transform(v => v === 'true'),
+  OCR_MAX_PAGES: z.string().default('3').transform(Number),
+  OCR_COMMAND_TIMEOUT_MS: z.string().default('20000').transform(Number),
 
   // Custom System Prompt
   CUSTOM_SYSTEM_PROMPT: z.string().optional(),

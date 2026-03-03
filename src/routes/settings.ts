@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
 import { logger } from '../config/index.js';
+import { requireConfiguredAuth } from '../middleware/route-auth.js';
 
 const router: Router = Router();
 const ENV_PATH = path.join(process.cwd(), '.env');
@@ -152,6 +153,9 @@ ADMIN_TOKEN=${env.ADMIN_TOKEN || ''}
 REDIS_URL=${env.REDIS_URL || ''}
 LOG_LEVEL=${env.LOG_LEVEL || 'info'}
 CUSTOM_SYSTEM_PROMPT=${env.CUSTOM_SYSTEM_PROMPT || ''}
+OCR_FALLBACK_ENABLED=${env.OCR_FALLBACK_ENABLED || 'false'}
+OCR_MAX_PAGES=${env.OCR_MAX_PAGES || '3'}
+OCR_COMMAND_TIMEOUT_MS=${env.OCR_COMMAND_TIMEOUT_MS || '20000'}
 
 # ===================
 # Discord Bot
@@ -221,7 +225,7 @@ router.get('/setup-status', async (_req: Request, res: Response) => {
 });
 
 // Get current settings (masks sensitive values)
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', requireConfiguredAuth, async (_req: Request, res: Response) => {
   try {
     const env = await parseEnvFile();
     
@@ -291,7 +295,7 @@ router.get('/', async (_req: Request, res: Response) => {
 });
 
 // Update settings
-router.put('/', async (req: Request, res: Response) => {
+router.put('/', requireConfiguredAuth, async (req: Request, res: Response) => {
   try {
     const currentEnv = await parseEnvFile();
     const updates = req.body;
@@ -381,7 +385,7 @@ router.put('/', async (req: Request, res: Response) => {
 });
 
 // Test API key (NO AUTH REQUIRED - used during setup)
-router.post('/test-api-key', async (req: Request, res: Response) => {
+router.post('/test-api-key', requireConfiguredAuth, async (req: Request, res: Response) => {
   const { baseUrl, apiKey, type } = req.body;
   
   if (!baseUrl || !apiKey) {
@@ -404,7 +408,7 @@ router.post('/test-api-key', async (req: Request, res: Response) => {
 });
 
 // Fetch available models (NO AUTH REQUIRED - used during setup)
-router.post('/fetch-models', async (req: Request, res: Response) => {
+router.post('/fetch-models', requireConfiguredAuth, async (req: Request, res: Response) => {
   const { baseUrl, apiKey } = req.body;
   
   if (!baseUrl || !apiKey) {
@@ -436,13 +440,13 @@ router.post('/fetch-models', async (req: Request, res: Response) => {
 });
 
 // Generate secure token (NO AUTH REQUIRED - used during setup)
-router.post('/generate-token', (_req: Request, res: Response) => {
+router.post('/generate-token', requireConfiguredAuth, (_req: Request, res: Response) => {
   const token = crypto.randomBytes(32).toString('hex').slice(0, 32);
   return res.json({ token });
 });
 
 // Fetch available embedding models (NO AUTH REQUIRED - used during setup)
-router.post('/fetch-embedding-models', async (req: Request, res: Response) => {
+router.post('/fetch-embedding-models', requireConfiguredAuth, async (req: Request, res: Response) => {
   const { baseUrl, apiKey } = req.body;
   
   if (!baseUrl || !apiKey) {
@@ -513,7 +517,7 @@ router.post('/fetch-embedding-models', async (req: Request, res: Response) => {
 });
 
 // Mark setup as complete (NO AUTH REQUIRED - called at end of wizard)
-router.post('/complete-setup', async (_req: Request, res: Response) => {
+router.post('/complete-setup', requireConfiguredAuth, async (_req: Request, res: Response) => {
   try {
     const dataDir = path.dirname(SETUP_COMPLETE_PATH);
     await fs.mkdir(dataDir, { recursive: true });
@@ -527,7 +531,7 @@ router.post('/complete-setup', async (_req: Request, res: Response) => {
 });
 
 // Reset setup (allows re-running wizard)
-router.post('/reset-setup', async (_req: Request, res: Response) => {
+router.post('/reset-setup', requireConfiguredAuth, async (_req: Request, res: Response) => {
   try {
     await fs.unlink(SETUP_COMPLETE_PATH).catch(() => {});
     logger.info('Setup reset');
