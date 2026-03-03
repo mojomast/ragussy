@@ -99,7 +99,7 @@ Status: **complete**
 Status: **partially started**
 
 1. ⏳ Snapshot tests for deterministic conversion output (docx/html/pdf fixtures).
-2. ⏳ Queue-based background ingestion for larger files.
+2. 🔄 Queue-based background ingestion for larger files.
 3. ⏳ Metrics dashboard for conversion success/failure rates and latency by format.
 4. 🔄 Security pass:
    - ✅ stricter write-path auth in bot command workflows
@@ -114,3 +114,9 @@ To maximize impact quickly, the next implementation slice should be:
 1. Phase 3 adapter completion for real `convert-wasm` execution paths.
 2. Phase 5 reliability items (snapshot tests, queue-based ingestion, metrics dashboard).
 3. Metrics and observability polish for conversion + ingestion latency/failure tracking.
+
+Current implementation notes:
+
+- Background ingestion queue is available for async convert uploads (`convert-upload`/`convert-zip`) with job status endpoints:
+  - `GET /api/documents/ingestion-jobs`
+  - `GET /api/documents/ingestion-jobs/:id`

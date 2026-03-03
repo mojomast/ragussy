@@ -13,6 +13,7 @@ export interface ConversionFailureRecord {
   intent: unknown;
   conflictStrategy: 'replace' | 'rename' | 'skip';
   ingestNow: boolean;
+  ingestAsync: boolean;
   error: string;
   createdAt: string;
   retryCount: number;
@@ -54,6 +55,7 @@ export async function recordConversionFailure(params: {
   intent: unknown;
   conflictStrategy: 'replace' | 'rename' | 'skip';
   ingestNow: boolean;
+  ingestAsync: boolean;
   error: string;
 }): Promise<ConversionFailureRecord> {
   const id = crypto.randomUUID();
@@ -72,6 +74,7 @@ export async function recordConversionFailure(params: {
     intent: params.intent,
     conflictStrategy: params.conflictStrategy,
     ingestNow: params.ingestNow,
+    ingestAsync: params.ingestAsync,
     error: params.error,
     createdAt: new Date().toISOString(),
     retryCount: 0,

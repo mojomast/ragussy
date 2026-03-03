@@ -73,6 +73,10 @@ interface ConvertZipResponse {
     chunksUpserted: number
     errors: string[]
   } | null
+  ingestionJob?: {
+    id: string
+    status: string
+  } | null
   error?: string
 }
 
@@ -106,6 +110,21 @@ interface ConversionFailureRecord {
   lastRetriedAt?: string
 }
 
+interface IngestionJob {
+  id: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  filePaths: string[]
+  createdAt: string
+  startedAt?: string
+  finishedAt?: string
+  result?: {
+    filesUpdated: number
+    chunksUpserted: number
+    errors: string[]
+  }
+  error?: string
+}
+
 export default function Documents() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [docsPath, setDocsPath] = useState('')
@@ -127,6 +146,7 @@ export default function Documents() {
   const [conversionMetadata, setConversionMetadata] = useState<ConversionMetadataRecord | null>(null)
   const [conversionFailures, setConversionFailures] = useState<ConversionFailureRecord[]>([])
   const [retryingFailureId, setRetryingFailureId] = useState<string | null>(null)
+  const [ingestionJobs, setIngestionJobs] = useState<IngestionJob[]>([])
   const [metadataLoadingPath, setMetadataLoadingPath] = useState<string | null>(null)
   const consoleEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
@@ -206,11 +226,39 @@ export default function Documents() {
     }
   }
 
+  const fetchIngestionJobs = async () => {
+    try {
+      const res = await apiFetch('/api/documents/ingestion-jobs?limit=30')
+      if (!res.ok) {
+        return
+      }
+
+      const data = await res.json()
+      setIngestionJobs(data.jobs || [])
+    } catch {
+      // Ignore
+    }
+  }
+
   useEffect(() => {
     fetchDocuments()
     fetchIngestionStatus()
     fetchConversionFailures()
+    fetchIngestionJobs()
   }, [])
+
+  useEffect(() => {
+    const hasActiveJob = ingestionJobs.some(job => job.status === 'queued' || job.status === 'running')
+    if (!hasActiveJob) {
+      return
+    }
+
+    const interval = setInterval(() => {
+      fetchIngestionJobs()
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [ingestionJobs])
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return
@@ -245,6 +293,7 @@ export default function Documents() {
           fetchDocuments()
           fetchIngestionStatus()
           fetchConversionFailures()
+          fetchIngestionJobs()
         } else {
           toast('error', data.error || 'Bulk convert failed')
         }
@@ -272,6 +321,7 @@ export default function Documents() {
           if ((data as any).conversionFailureId) {
             toast('error', `Convert upload failed (failure id: ${(data as any).conversionFailureId})`)
             fetchConversionFailures()
+            fetchIngestionJobs()
           }
           toast('error', data.error || 'Convert upload failed')
         }
@@ -286,6 +336,7 @@ export default function Documents() {
           toast('success', `Uploaded ${data.filesAdded} file(s)`)
           fetchDocuments()
           fetchConversionFailures()
+          fetchIngestionJobs()
         } else {
           toast('error', data.error || 'Upload failed')
         }
@@ -346,6 +397,7 @@ export default function Documents() {
         toast('success', `Indexed ${data.result.filesUpdated} files, ${data.result.chunksUpserted} chunks`)
         fetchDocuments()
         fetchIngestionStatus()
+        fetchIngestionJobs()
       } else {
         addConsoleLog('error', `Ingestion failed: ${data.message || data.error || 'Unknown error'}`)
         toast('error', data.message || data.error || 'Ingestion failed')
@@ -408,6 +460,7 @@ export default function Documents() {
           toast('success', `Indexed ${totalFilesUpdated} files, ${totalChunksUpserted} chunks`)
           fetchDocuments()
           fetchIngestionStatus()
+          fetchIngestionJobs()
           break
         }
 
@@ -458,6 +511,7 @@ export default function Documents() {
         setSelectedDocs(new Set())
         fetchDocuments()
         fetchIngestionStatus()
+        fetchIngestionJobs()
       } else {
         addConsoleLog('error', `Ingestion failed: ${data.message || data.error || 'Unknown error'}`)
         toast('error', data.message || data.error || 'Ingestion failed')
@@ -478,6 +532,7 @@ export default function Documents() {
       if (res.ok) {
         toast('success', 'Document deleted')
         fetchDocuments()
+        fetchIngestionJobs()
       } else {
         toast('error', 'Failed to delete')
       }
@@ -519,6 +574,7 @@ export default function Documents() {
         fetchDocuments()
         fetchIngestionStatus()
         fetchConversionFailures()
+        fetchIngestionJobs()
         if (data.files && data.files.length > 0) {
           handleViewConversionReport(data.files[0])
         }
@@ -799,6 +855,11 @@ export default function Documents() {
               <strong>Skipped:</strong> {lastConvertZipResult.totals.skipped} ·{' '}
               <strong>Failed:</strong> {lastConvertZipResult.totals.failed}
             </p>
+            {lastConvertZipResult.ingestionJob && (
+              <p className="mt-1">
+                <strong>Ingestion job:</strong> {lastConvertZipResult.ingestionJob.id.slice(0, 8)} ({lastConvertZipResult.ingestionJob.status})
+              </p>
+            )}
           </div>
 
           <div className="overflow-x-auto">
@@ -861,6 +922,49 @@ export default function Documents() {
                 >
                   Retry
                 </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {ingestionJobs.length > 0 && (
+        <Card
+          title="Background Ingestion Jobs"
+          description="Queue status for async ingestion requests"
+          actions={
+            <Button variant="ghost" size="sm" onClick={fetchIngestionJobs}>
+              <RefreshCw size={14} />
+            </Button>
+          }
+        >
+          <div className="space-y-2">
+            {ingestionJobs.map(job => (
+              <div key={job.id} className="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium text-slate-800">Job {job.id.slice(0, 8)}</p>
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs ${
+                      job.status === 'completed'
+                        ? 'bg-green-100 text-green-800'
+                        : job.status === 'failed'
+                          ? 'bg-red-100 text-red-800'
+                          : job.status === 'running'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {job.status}
+                  </span>
+                </div>
+                <p className="text-slate-600 text-xs mt-1">{job.filePaths.length} file(s)</p>
+                {job.result && (
+                  <p className="text-slate-600 text-xs mt-1">
+                    {job.result.filesUpdated} files updated · {job.result.chunksUpserted} chunks upserted ·{' '}
+                    {job.result.errors.length} errors
+                  </p>
+                )}
+                {job.error && <p className="text-red-700 text-xs mt-1">{job.error}</p>}
               </div>
             ))}
           </div>

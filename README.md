@@ -177,6 +177,7 @@ OCR fallback requires `pdftoppm` and `tesseract` binaries on the host/container.
 You can also open per-file conversion reports from the Documents list.
 When conversion fails, raw uploads are retained for retry in the Documents "Conversion Failures" panel.
 ZIP uploads support bulk conversion with a per-file status table.
+Large convert uploads can run async ingestion and expose queue status via `/api/documents/ingestion-jobs`.
 
 ### Indexing
 

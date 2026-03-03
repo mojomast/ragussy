@@ -48,3 +48,10 @@ export {
   getFailureRawAbsolutePath,
   type ConversionFailureRecord,
 } from './conversion-failures.js';
+
+export {
+  enqueueIngestionJob,
+  getIngestionJob,
+  listIngestionJobs,
+  type IngestionJob,
+} from './ingestion-queue.js';

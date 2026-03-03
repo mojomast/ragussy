@@ -12,6 +12,9 @@ import {
   getConversionMetadata,
   getConversionFailure,
   getFailureRawAbsolutePath,
+  getIngestionJob,
+  enqueueIngestionJob,
+  listIngestionJobs,
   listConversionFailures,
   markConversionFailureRetried,
   normalizeIntent,
@@ -251,6 +254,7 @@ interface ConvertAndStoreParams {
   bytes: Uint8Array;
   conflictStrategy: ConflictStrategy;
   ingestNow: boolean;
+  ingestAsync?: boolean;
   intent: ConversionIntent;
 }
 
@@ -270,6 +274,10 @@ async function convertAndStoreDocument(params: ConvertAndStoreParams): Promise<{
     markdownLength: number;
   };
   ingestion: any;
+  ingestionJob?: {
+    id: string;
+    status: string;
+  } | null;
 }> {
   const docsPath = getDocsPath();
   const converted = await convertDocumentWithIntent(
@@ -299,8 +307,17 @@ async function convertAndStoreDocument(params: ConvertAndStoreParams): Promise<{
   }
 
   let ingestionResult: any = null;
+  let ingestionJob: { id: string; status: string } | null = null;
   if (params.ingestNow && writtenFiles.length > 0) {
-    ingestionResult = await ingestSelected({ filePaths: writtenFiles });
+    if (params.ingestAsync) {
+      const job = enqueueIngestionJob(writtenFiles);
+      ingestionJob = {
+        id: job.id,
+        status: job.status,
+      };
+    } else {
+      ingestionResult = await ingestSelected({ filePaths: writtenFiles });
+    }
   }
 
   if (writtenFiles.length > 0) {
@@ -346,6 +363,7 @@ async function convertAndStoreDocument(params: ConvertAndStoreParams): Promise<{
       markdownLength: converted.markdown.length,
     },
     ingestion: ingestionResult,
+    ingestionJob,
   };
 }
 
@@ -532,6 +550,7 @@ router.post('/convert-upload', requireConfiguredAuth, upload.single('file'), asy
   let sourceMimeType = '';
   let conflictStrategy: ConflictStrategy = 'replace';
   let ingestNow = true;
+  let ingestAsync = false;
   let intent: ConversionIntent = normalizeIntent({});
 
   try {
@@ -545,6 +564,7 @@ router.post('/convert-upload', requireConfiguredAuth, upload.single('file'), asy
 
     conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy);
     ingestNow = parseBooleanFlag(req.body?.ingestNow, true);
+    ingestAsync = parseBooleanFlag(req.body?.ingestAsync, false);
     intent = parseIntentFromBody(req.body?.intent);
 
     uploadedBytes = new Uint8Array(await fs.readFile(uploadedPath));
@@ -555,6 +575,7 @@ router.post('/convert-upload', requireConfiguredAuth, upload.single('file'), asy
       bytes: uploadedBytes,
       conflictStrategy,
       ingestNow,
+      ingestAsync,
       intent,
     });
 
@@ -567,6 +588,7 @@ router.post('/convert-upload', requireConfiguredAuth, upload.single('file'), asy
         warnings: result.conversion.warnings.length,
         conflictStrategy,
         ingestNow,
+        ingestAsync,
       },
       'Converted upload completed'
     );
@@ -588,6 +610,7 @@ router.post('/convert-upload', requireConfiguredAuth, upload.single('file'), asy
           intent,
           conflictStrategy,
           ingestNow,
+          ingestAsync,
           error: errorMessage,
         });
         failureId = failure.id;
@@ -623,6 +646,7 @@ router.post('/convert-zip', requireConfiguredAuth, upload.single('file'), async 
     uploadedPath = req.file.path;
     const conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy);
     const ingestNow = parseBooleanFlag(req.body?.ingestNow, false);
+    const ingestAsync = parseBooleanFlag(req.body?.ingestAsync, true);
     const intent = parseIntentFromBody(req.body?.intent);
 
     const zip = new AdmZip(uploadedPath);
@@ -655,6 +679,7 @@ router.post('/convert-zip', requireConfiguredAuth, upload.single('file'), async 
           bytes: new Uint8Array(entry.getData()),
           conflictStrategy,
           ingestNow: false,
+          ingestAsync: false,
           intent,
         });
 
@@ -684,14 +709,21 @@ router.post('/convert-zip', requireConfiguredAuth, upload.single('file'), async 
     }
 
     let ingestionResult: any = null;
+    let ingestionJob: { id: string; status: string } | null = null;
     if (ingestNow && allWrittenFiles.length > 0) {
-      ingestionResult = await ingestSelected({ filePaths: allWrittenFiles });
+      if (ingestAsync) {
+        const job = enqueueIngestionJob(allWrittenFiles);
+        ingestionJob = { id: job.id, status: job.status };
+      } else {
+        ingestionResult = await ingestSelected({ filePaths: allWrittenFiles });
+      }
     }
 
     return res.json({
       success: true,
       conflictStrategy,
       ingestNow,
+      ingestAsync,
       totals: {
         processed: rows.length,
         converted: rows.filter(row => row.status === 'converted').length,
@@ -700,6 +732,7 @@ router.post('/convert-zip', requireConfiguredAuth, upload.single('file'), async 
       },
       rows,
       ingestion: ingestionResult,
+      ingestionJob,
     });
   } catch (error) {
     logger.error({ error }, 'Failed to convert zip upload');
@@ -708,6 +741,32 @@ router.post('/convert-zip', requireConfiguredAuth, upload.single('file'), async 
     if (uploadedPath) {
       await fs.unlink(uploadedPath).catch(() => undefined);
     }
+  }
+});
+
+router.get('/ingestion-jobs', requireConfiguredAuth, async (req: Request, res: Response) => {
+  try {
+    const limitRaw = Number(req.query.limit ?? 50);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, limitRaw)) : 50;
+    const jobs = listIngestionJobs(limit);
+    return res.json({ jobs });
+  } catch (error) {
+    logger.error({ error }, 'Failed to list ingestion jobs');
+    return res.status(500).json({ error: 'Failed to list ingestion jobs' });
+  }
+});
+
+router.get('/ingestion-jobs/:id', requireConfiguredAuth, async (req: Request, res: Response) => {
+  try {
+    const job = getIngestionJob(req.params.id);
+    if (!job) {
+      return res.status(404).json({ error: 'Ingestion job not found' });
+    }
+
+    return res.json({ job });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get ingestion job');
+    return res.status(500).json({ error: 'Failed to get ingestion job' });
   }
 });
 
@@ -733,6 +792,7 @@ router.post('/conversion-failures/:id/retry', requireConfiguredAuth, async (req:
 
     const conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy ?? failure.conflictStrategy);
     const ingestNow = parseBooleanFlag(req.body?.ingestNow, failure.ingestNow);
+    const ingestAsync = parseBooleanFlag(req.body?.ingestAsync, failure.ingestAsync);
     const intent = parseIntentFromBody(req.body?.intent ?? failure.intent);
 
     try {
@@ -742,6 +802,7 @@ router.post('/conversion-failures/:id/retry', requireConfiguredAuth, async (req:
         bytes: rawBytes,
         conflictStrategy,
         ingestNow,
+        ingestAsync,
         intent,
       });
 
