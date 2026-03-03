@@ -99,7 +99,7 @@ Status: **partially started**
 4. 🔄 Security pass:
    - ✅ stricter write-path auth in bot command workflows
    - ✅ file-type and MIME sanity checks in bot converter path
-   - ⏳ zip bomb protection in backend upload pipeline
+   - ✅ zip bomb protection in backend upload pipeline (entry count and uncompressed-size guards)
    - ⏳ stricter auth coverage for backend write routes (`/api/documents`, `/api/vectors`, `/api/settings`)
 
 ## Recommended Next Slice

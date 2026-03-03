@@ -16,6 +16,9 @@ import {
 
 const router: Router = Router();
 type ConflictStrategy = 'replace' | 'rename' | 'skip';
+const MAX_ZIP_ENTRIES = 2000;
+const MAX_ZIP_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
+const MAX_ZIP_ENTRY_BYTES = 25 * 1024 * 1024;
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -226,6 +229,35 @@ function parseIntentFromBody(intentRaw: unknown): ConversionIntent {
   return normalizeIntent(intentRaw);
 }
 
+function validateZipEntries(entries: AdmZip.IZipEntry[]): void {
+  if (entries.length > MAX_ZIP_ENTRIES) {
+    throw new Error(`Zip contains too many entries (${entries.length}). Limit is ${MAX_ZIP_ENTRIES}.`);
+  }
+
+  let totalUncompressed = 0;
+
+  for (const entry of entries) {
+    if (entry.isDirectory) {
+      continue;
+    }
+
+    const uncompressedSize = Number((entry as any).header?.size ?? 0);
+    if (uncompressedSize > MAX_ZIP_ENTRY_BYTES) {
+      throw new Error(
+        `Zip entry is too large (${entry.entryName}: ${uncompressedSize} bytes). ` +
+          `Max per entry is ${MAX_ZIP_ENTRY_BYTES} bytes.`
+      );
+    }
+
+    totalUncompressed += Math.max(uncompressedSize, 0);
+    if (totalUncompressed > MAX_ZIP_UNCOMPRESSED_BYTES) {
+      throw new Error(
+        `Zip uncompressed size exceeds limit (${MAX_ZIP_UNCOMPRESSED_BYTES} bytes).`
+      );
+    }
+  }
+}
+
 // Get document content
 router.get('/content/*', async (req: Request, res: Response) => {
   try {
@@ -285,6 +317,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       // Extract zip file
       const zip = new AdmZip(uploadedPath);
       const entries = zip.getEntries();
+      validateZipEntries(entries);
 
       for (const entry of entries) {
         if (entry.isDirectory) continue;
