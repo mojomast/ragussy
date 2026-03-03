@@ -50,13 +50,13 @@ Status: **mostly complete**
 
 ## Phase 2: Shared conversion service in backend
 
-Status: **not started**
+Status: **partially started**
 
-1. Move conversion logic from bot into a backend service module (`src/services/document-conversion.ts`).
-2. Add endpoint:
+1. ✅ Move conversion logic from bot into a backend service module (`src/services/document-conversion.ts`).
+2. ✅ Add endpoint:
    - `POST /api/documents/convert-upload` (multipart + conversion + optional ingest)
-3. Keep Discord bot thin by delegating conversion to backend endpoint.
-4. Add conversion metadata persistence (source MIME, converter used, warning list, checksum).
+3. ✅ Keep Discord bot thin by delegating conversion to backend endpoint.
+4. ⏳ Add conversion metadata persistence (source MIME, converter used, warning list, checksum).
 
 ## Phase 3: Integrate `convert` as an optional engine
 

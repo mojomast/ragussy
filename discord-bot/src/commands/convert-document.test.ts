@@ -15,13 +15,11 @@ test('/convertdoc happy path uploads and ingests document', async () => {
   const { ragApi } = await servicesModulePromise;
 
   const originalFetch = globalThis.fetch;
-  const originalUpload = ragApi.uploadDocument;
-  const originalIngest = ragApi.ingestDocuments;
-  const originalSummarize = ragApi.summarizeMarkdown;
+  const originalConvertUpload = ragApi.convertUpload;
 
-  let uploadCalled = false;
+  let convertUploadCalled = false;
   let uploadStrategy: string | undefined;
-  let ingestCalled = false;
+  let ingestNow: boolean | undefined;
 
   globalThis.fetch = async () => {
     return new Response('# Title\n\nHello world', {
@@ -30,21 +28,23 @@ test('/convertdoc happy path uploads and ingests document', async () => {
     });
   };
 
-  ragApi.uploadDocument = async (_fileName: string, _markdown: string, strategy) => {
-    uploadCalled = true;
-    uploadStrategy = strategy;
+  ragApi.convertUpload = async params => {
+    convertUploadCalled = true;
+    uploadStrategy = params.conflictStrategy;
+    ingestNow = params.ingestNow;
     return {
       success: true,
+      conflictStrategy: 'rename',
       filesAdded: 1,
       files: ['notes.md'],
-    };
-  };
-
-  ragApi.ingestDocuments = async () => {
-    ingestCalled = true;
-    return {
-      success: true,
-      result: {
+      conversion: {
+        sourceFormat: 'md',
+        appliedActions: ['convert', 'clean_markdown'],
+        warnings: [],
+        ignoredInstructions: [],
+        markdownLength: 18,
+      },
+      ingestion: {
         filesScanned: 1,
         filesUpdated: 1,
         filesDeleted: 0,
@@ -54,8 +54,6 @@ test('/convertdoc happy path uploads and ingests document', async () => {
       },
     };
   };
-
-  ragApi.summarizeMarkdown = async () => '# Summary\n\nsummary';
 
   const edits: Array<{ embeds?: Array<{ data?: { title?: string } }> }> = [];
   const interaction = {
@@ -94,15 +92,13 @@ test('/convertdoc happy path uploads and ingests document', async () => {
   try {
     await convertDocumentCommand.execute(interaction as never);
 
-    assert.equal(uploadCalled, true);
+    assert.equal(convertUploadCalled, true);
     assert.equal(uploadStrategy, 'rename');
-    assert.equal(ingestCalled, true);
+    assert.equal(ingestNow, true);
     assert.equal(edits.length, 1);
     assert.equal(edits[0].embeds?.[0]?.data?.title, '✅ Document converted and uploaded');
   } finally {
     globalThis.fetch = originalFetch;
-    ragApi.uploadDocument = originalUpload;
-    ragApi.ingestDocuments = originalIngest;
-    ragApi.summarizeMarkdown = originalSummarize;
+    ragApi.convertUpload = originalConvertUpload;
   }
 });

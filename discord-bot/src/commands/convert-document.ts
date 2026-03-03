@@ -7,7 +7,6 @@ import {
 import { env, logger } from '../config/index.js';
 import {
   ragApi,
-  convertDocumentWithIntent,
   parseConversionInstructions,
   IntentClarificationError,
   type ConversionIntent,
@@ -119,36 +118,25 @@ export const convertDocumentCommand = {
       }
       const conversionStart = Date.now();
 
-      const converted = await convertDocumentWithIntent(
-        {
-          fileName: attachment.name,
-          mimeType: attachment.contentType,
-          bytes,
-        },
-        parsed.intent,
-        {
-          summarizeText: async (text, style) =>
-            ragApi.summarizeMarkdown(text, style ?? parsed.intent.summaryStyle ?? 'short'),
-        }
-      );
+      const shouldIngest = parsed.intent.ingestNow ?? true;
+      const result = await ragApi.convertUpload({
+        fileName: attachment.name,
+        mimeType: attachment.contentType,
+        bytes,
+        conflictStrategy,
+        ingestNow: shouldIngest,
+        intent: parsed.intent,
+      });
 
       const conversionMs = Date.now() - conversionStart;
-      const uploadResult = await ragApi.uploadDocument(
-        converted.fileName,
-        converted.markdown,
-        conflictStrategy
-      );
-      const storedFileName = uploadResult.files[0] ?? converted.fileName;
-
-      const shouldIngest = parsed.intent.ingestNow ?? true;
+      const storedFileName = result.files[0] ?? parsed.intent.outputFileName ?? attachment.name;
 
       let ingestDetails: string;
-      if (uploadResult.filesAdded === 0) {
+      if (result.filesAdded === 0) {
         ingestDetails = 'Upload skipped (file already exists)';
-      } else if (shouldIngest) {
-        const ingestResponse = await ragApi.ingestDocuments(uploadResult.files);
-        const chunks = ingestResponse.result?.chunksUpserted ?? 0;
-        const errors = ingestResponse.result?.errors ?? [];
+      } else if (result.ingestion) {
+        const chunks = result.ingestion.chunksUpserted ?? 0;
+        const errors = result.ingestion.errors ?? [];
         ingestDetails = errors.length > 0
           ? `Ingested with ${errors.length} warning(s)`
           : `Ingested ${chunks} chunk${chunks === 1 ? '' : 's'}`;
@@ -158,14 +146,14 @@ export const convertDocumentCommand = {
 
       logger.info(
         {
-          sourceFormat: converted.sourceFormat,
+          sourceFormat: result.conversion.sourceFormat,
           intent: {
             operation: parsed.intent.operation,
             targetFormat: parsed.intent.targetFormat,
           },
           parseMethod: parsed.parseMethod,
           conversionMs,
-          warningsCount: converted.warnings.length,
+          warningsCount: result.conversion.warnings.length,
           ingested: shouldIngest,
         },
         '/convertdoc completed'
@@ -187,23 +175,23 @@ export const convertDocumentCommand = {
           },
           {
             name: 'Applied Actions',
-            value: converted.appliedActions.map(action => `- ${action}`).join('\n') || '- convert',
+            value: result.conversion.appliedActions.map(action => `- ${action}`).join('\n') || '- convert',
             inline: false,
           }
         )
         .setFooter({ text: env.BOT_NAME })
         .setTimestamp();
 
-      if (converted.ignoredInstructions.length > 0) {
+      if (result.conversion.ignoredInstructions.length > 0) {
         embed.addFields({
           name: 'Skipped / Unsupported Instructions',
-          value: converted.ignoredInstructions.slice(0, 5).map(note => `- ${note}`).join('\n'),
+          value: result.conversion.ignoredInstructions.slice(0, 5).map(note => `- ${note}`).join('\n'),
           inline: false,
         });
       }
 
-      if (uploadResult.renamedFiles && uploadResult.renamedFiles.length > 0) {
-        const renamed = uploadResult.renamedFiles[0];
+      if (result.renamedFiles && result.renamedFiles.length > 0) {
+        const renamed = result.renamedFiles[0];
         embed.addFields({
           name: 'Renamed',
           value: `- ${renamed.from} -> ${renamed.to}`,

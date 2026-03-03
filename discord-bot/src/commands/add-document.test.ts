@@ -15,11 +15,10 @@ test('/adddoc skip strategy avoids ingest when file exists', async () => {
   const { ragApi } = await servicesModulePromise;
 
   const originalFetch = globalThis.fetch;
-  const originalUpload = ragApi.uploadDocument;
-  const originalIngest = ragApi.ingestDocuments;
+  const originalConvertUpload = ragApi.convertUpload;
 
   let uploadStrategy: string | undefined;
-  let ingestCalled = false;
+  let ingestNow: boolean | undefined;
 
   globalThis.fetch = async () => {
     return new Response('# Existing\n\nSame doc', {
@@ -28,28 +27,23 @@ test('/adddoc skip strategy avoids ingest when file exists', async () => {
     });
   };
 
-  ragApi.uploadDocument = async (_fileName: string, _markdown: string, strategy) => {
-    uploadStrategy = strategy;
+  ragApi.convertUpload = async params => {
+    uploadStrategy = params.conflictStrategy;
+    ingestNow = params.ingestNow;
     return {
       success: true,
+      conflictStrategy: 'skip',
       filesAdded: 0,
       files: [],
       skippedFiles: ['existing.md'],
-    };
-  };
-
-  ragApi.ingestDocuments = async () => {
-    ingestCalled = true;
-    return {
-      success: true,
-      result: {
-        filesScanned: 0,
-        filesUpdated: 0,
-        filesDeleted: 0,
-        chunksUpserted: 0,
-        chunksDeleted: 0,
-        errors: [],
+      conversion: {
+        sourceFormat: 'md',
+        appliedActions: ['convert'],
+        warnings: [],
+        ignoredInstructions: [],
+        markdownLength: 18,
       },
+      ingestion: null,
     };
   };
 
@@ -89,11 +83,10 @@ test('/adddoc skip strategy avoids ingest when file exists', async () => {
     await addDocumentCommand.execute(interaction as never);
 
     assert.equal(uploadStrategy, 'skip');
-    assert.equal(ingestCalled, false);
+    assert.equal(ingestNow, true);
     assert.equal(edits[0].embeds?.[0]?.data?.title, '✅ Document added to knowledge base');
   } finally {
     globalThis.fetch = originalFetch;
-    ragApi.uploadDocument = originalUpload;
-    ragApi.ingestDocuments = originalIngest;
+    ragApi.convertUpload = originalConvertUpload;
   }
 });

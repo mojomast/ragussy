@@ -5,6 +5,7 @@ import multer from 'multer';
 import AdmZip from 'adm-zip';
 import { logger, getDocsPath, getDocsExtensions, getRuntimeSecurityConfig } from '../config/index.js';
 import { ingestIncremental, ingestFull, ingestFullPartial, ingestSelected, getAllFileStates } from '../ingestion/index.js';
+import { convertDocumentWithIntent, normalizeIntent, type ConversionIntent } from '../services/index.js';
 
 const router: Router = Router();
 type ConflictStrategy = 'replace' | 'rename' | 'skip';
@@ -185,6 +186,39 @@ async function resolveConflictPath(
   throw new Error('Could not resolve a unique file name for upload');
 }
 
+function parseBooleanFlag(value: unknown, defaultValue: boolean): boolean {
+  if (value === undefined || value === null || value === '') {
+    return defaultValue;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['false', '0', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return defaultValue;
+}
+
+function parseIntentFromBody(intentRaw: unknown): ConversionIntent {
+  if (!intentRaw) {
+    return normalizeIntent({});
+  }
+
+  if (typeof intentRaw === 'string') {
+    return normalizeIntent(JSON.parse(intentRaw));
+  }
+
+  return normalizeIntent(intentRaw);
+}
+
 // Get document content
 router.get('/content/*', async (req: Request, res: Response) => {
   try {
@@ -291,6 +325,99 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
   } catch (error) {
     logger.error({ error }, 'Failed to upload documents');
     return res.status(500).json({ error: 'Failed to upload documents' });
+  } finally {
+    if (uploadedPath) {
+      await fs.unlink(uploadedPath).catch(() => undefined);
+    }
+  }
+});
+
+// Convert + upload in one request (for Discord bot and future UI use)
+router.post('/convert-upload', upload.single('file'), async (req: Request, res: Response) => {
+  let uploadedPath = '';
+
+  try {
+    const runtimeSecurity = await getRuntimeSecurityConfig();
+    const apiKey = req.headers['x-api-key'];
+    if (!runtimeSecurity.apiKey || !apiKey || apiKey !== runtimeSecurity.apiKey) {
+      return res.status(403).json({ error: 'Invalid API key' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const docsPath = getDocsPath();
+    uploadedPath = req.file.path;
+
+    const conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy);
+    const ingestNow = parseBooleanFlag(req.body?.ingestNow, true);
+    const intent = parseIntentFromBody(req.body?.intent);
+
+    const fileBytes = await fs.readFile(uploadedPath);
+    const converted = await convertDocumentWithIntent(
+      {
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        bytes: new Uint8Array(fileBytes),
+      },
+      intent
+    );
+
+    const resolved = await resolveConflictPath(docsPath, converted.fileName, conflictStrategy);
+    const skippedFiles: string[] = [];
+    const renamedFiles: Array<{ from: string; to: string }> = [];
+    const writtenFiles: string[] = [];
+
+    if (resolved.action === 'skip') {
+      skippedFiles.push(resolved.relativePath);
+    } else {
+      await fs.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
+      await fs.writeFile(resolved.absolutePath, converted.markdown, 'utf-8');
+      writtenFiles.push(resolved.relativePath);
+
+      if (resolved.renamedFrom) {
+        renamedFiles.push({ from: resolved.renamedFrom, to: resolved.relativePath });
+      }
+    }
+
+    let ingestionResult: any = null;
+    if (ingestNow && writtenFiles.length > 0) {
+      ingestionResult = await ingestSelected({ filePaths: writtenFiles });
+    }
+
+    logger.info(
+      {
+        originalFileName: req.file.originalname,
+        storedFile: writtenFiles[0] ?? null,
+        sourceFormat: converted.sourceFormat,
+        actions: converted.appliedActions,
+        warnings: converted.warnings.length,
+        conflictStrategy,
+        ingestNow,
+      },
+      'Converted upload completed'
+    );
+
+    return res.json({
+      success: true,
+      conflictStrategy,
+      filesAdded: writtenFiles.length,
+      files: writtenFiles,
+      skippedFiles,
+      renamedFiles,
+      conversion: {
+        sourceFormat: converted.sourceFormat,
+        appliedActions: converted.appliedActions,
+        warnings: converted.warnings,
+        ignoredInstructions: converted.ignoredInstructions,
+        markdownLength: converted.markdown.length,
+      },
+      ingestion: ingestionResult,
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to convert-upload document');
+    return res.status(500).json({ error: 'Failed to convert and upload document' });
   } finally {
     if (uploadedPath) {
       await fs.unlink(uploadedPath).catch(() => undefined);

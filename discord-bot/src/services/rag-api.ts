@@ -1,5 +1,6 @@
 import { env, logger } from '../config/index.js';
 import type { SummaryStyle } from './conversion-intent.js';
+import type { ConversionIntent } from './conversion-intent.js';
 
 export interface ChatRequest {
   message: string;
@@ -50,6 +51,30 @@ export interface UploadDocumentResponse {
 }
 
 export type ConflictStrategy = 'replace' | 'rename' | 'skip';
+
+export interface ConvertUploadResponse {
+  success: boolean;
+  conflictStrategy: ConflictStrategy;
+  filesAdded: number;
+  files: string[];
+  skippedFiles?: string[];
+  renamedFiles?: Array<{ from: string; to: string }>;
+  conversion: {
+    sourceFormat: string;
+    appliedActions: string[];
+    warnings: string[];
+    ignoredInstructions: string[];
+    markdownLength: number;
+  };
+  ingestion?: {
+    filesScanned: number;
+    filesUpdated: number;
+    filesDeleted: number;
+    chunksUpserted: number;
+    chunksDeleted: number;
+    errors: string[];
+  } | null;
+}
 
 export interface IngestDocumentsResponse {
   success: boolean;
@@ -185,6 +210,40 @@ export class RagApiClient {
     }
 
     return await response.json() as IngestDocumentsResponse;
+  }
+
+  async convertUpload(params: {
+    fileName: string;
+    mimeType?: string | null;
+    bytes: Uint8Array;
+    conflictStrategy?: ConflictStrategy;
+    ingestNow?: boolean;
+    intent?: ConversionIntent;
+  }): Promise<ConvertUploadResponse> {
+    const url = `${this.baseUrl}/documents/convert-upload`;
+
+    const formData = new FormData();
+    const blob = new Blob([params.bytes], { type: params.mimeType || 'application/octet-stream' });
+    formData.append('file', blob, params.fileName);
+    formData.append('conflictStrategy', params.conflictStrategy ?? 'replace');
+    formData.append('ingestNow', String(params.ingestNow ?? true));
+    formData.append('intent', JSON.stringify(params.intent ?? { operation: 'convert' }));
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.apiKey,
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      logger.error({ status: response.status, error: errorText }, 'Convert-upload request failed');
+      throw new Error(`Convert upload failed: ${response.status} ${response.statusText}`);
+    }
+
+    return await response.json() as ConvertUploadResponse;
   }
 
   async summarizeMarkdown(

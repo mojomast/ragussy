@@ -5,7 +5,7 @@ import {
   PermissionFlagsBits,
 } from 'discord.js';
 import { env, logger } from '../config/index.js';
-import { ragApi, convertDocument, type ConflictStrategy } from '../services/index.js';
+import { ragApi, type ConflictStrategy } from '../services/index.js';
 
 export const addDocumentCommand = {
   data: new SlashCommandBuilder()
@@ -90,26 +90,21 @@ export const addDocumentCommand = {
       if (bytes.byteLength > maxBytes) {
         throw new Error(`Downloaded file exceeded max size of ${env.MAX_DOC_UPLOAD_MB}MB.`);
       }
-      const converted = await convertDocument({
+      const result = await ragApi.convertUpload({
         fileName: attachment.name,
         mimeType: attachment.contentType,
         bytes,
+        conflictStrategy,
+        ingestNow,
       });
-
-      const uploadResult = await ragApi.uploadDocument(
-        converted.fileName,
-        converted.markdown,
-        conflictStrategy
-      );
-      const storedFileName = uploadResult.files[0] ?? converted.fileName;
+      const storedFileName = result.files[0] ?? attachment.name;
 
       let ingestDetails: string;
-      if (uploadResult.filesAdded === 0) {
+      if (result.filesAdded === 0) {
         ingestDetails = 'Upload skipped (file already exists)';
-      } else if (ingestNow) {
-        const ingestResponse = await ragApi.ingestDocuments(uploadResult.files);
-        const chunks = ingestResponse.result?.chunksUpserted ?? 0;
-        const errors = ingestResponse.result?.errors ?? [];
+      } else if (result.ingestion) {
+        const chunks = result.ingestion.chunksUpserted ?? 0;
+        const errors = result.ingestion.errors ?? [];
         ingestDetails = errors.length > 0
           ? `Ingested with ${errors.length} warning(s)`
           : `Ingested ${chunks} chunk${chunks === 1 ? '' : 's'}`;
@@ -123,15 +118,15 @@ export const addDocumentCommand = {
         .addFields(
           { name: 'Original File', value: attachment.name, inline: false },
           { name: 'Stored As', value: storedFileName, inline: false },
-          { name: 'Converted From', value: converted.sourceFormat.toUpperCase(), inline: true },
+          { name: 'Converted From', value: result.conversion.sourceFormat.toUpperCase(), inline: true },
           { name: 'If Exists', value: conflictStrategy, inline: true },
           { name: 'Ingestion', value: ingestDetails, inline: true }
         )
         .setFooter({ text: env.BOT_NAME })
         .setTimestamp();
 
-      if (uploadResult.renamedFiles && uploadResult.renamedFiles.length > 0) {
-        const renamed = uploadResult.renamedFiles[0];
+      if (result.renamedFiles && result.renamedFiles.length > 0) {
+        const renamed = result.renamedFiles[0];
         embed.addFields({
           name: 'Renamed',
           value: `- ${renamed.from} -> ${renamed.to}`,
@@ -139,10 +134,10 @@ export const addDocumentCommand = {
         });
       }
 
-      if (converted.warnings.length > 0) {
+      if (result.conversion.warnings.length > 0) {
         embed.addFields({
           name: 'Conversion Notes',
-          value: converted.warnings.slice(0, 3).map(w => `- ${w}`).join('\n'),
+          value: result.conversion.warnings.slice(0, 3).map(w => `- ${w}`).join('\n'),
           inline: false,
         });
       }

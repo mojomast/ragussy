@@ -10,6 +10,7 @@ export {
   type UploadDocumentResponse,
   type IngestDocumentsResponse,
   type ConflictStrategy,
+  type ConvertUploadResponse,
 } from './rag-api.js';
 
 export {

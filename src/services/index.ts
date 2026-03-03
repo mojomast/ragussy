@@ -9,3 +9,19 @@ export {
   getCollectionInfo,
   type SearchResult,
 } from './qdrant.js';
+
+export {
+  convertDocument,
+  convertDocumentWithIntent,
+  type RawDocumentInput,
+  type ConvertedDocument,
+  type IntentConvertedDocument,
+} from './document-conversion.js';
+
+export {
+  conversionIntentSchema,
+  normalizeIntent,
+  normalizeOutputFileName,
+  type ConversionIntent,
+  type SummaryStyle,
+} from './document-conversion-intent.js';
