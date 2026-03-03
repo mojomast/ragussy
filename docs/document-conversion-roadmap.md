@@ -77,17 +77,17 @@ Status: **partially started**
 
 ## Phase 4: Web frontend rollout
 
-Status: **not started**
+Status: **partially started**
 
-1. Add "Convert on upload" toggle to Documents page.
-2. Add supported-format badges and max-size hints in uploader UX.
+1. ✅ Add "Convert on upload" toggle to Documents page.
+2. ✅ Add supported-format badges and max-size hints in uploader UX.
 3. 🔄 Show conversion report panel after upload:
     - extracted title
     - converter used
     - warnings
     - ingest result
-4. Add retry action for failed conversions and save raw file for later reprocessing.
-5. Add bulk zip conversion mode with per-file status table.
+4. ⏳ Add retry action for failed conversions and save raw file for later reprocessing.
+5. ⏳ Add bulk zip conversion mode with per-file status table.
 
 ## Phase 5: Reliability and quality
 
@@ -106,6 +106,6 @@ Status: **partially started**
 
 To maximize impact quickly, the next implementation slice should be:
 
-1. Phase 2 items 1-3 (shared backend conversion service + `convert-upload` endpoint + bot delegation).
-2. Phase 4 conversion UX completion (report details + retry + bulk conversion status).
+1. Phase 4 conversion UX completion (report details + retry + bulk conversion status).
+2. Phase 3 optional `convert` engine abstraction and adapter wiring.
 3. Phase 5 reliability items (snapshot tests, queue-based ingestion, metrics dashboard).

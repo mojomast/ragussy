@@ -165,6 +165,9 @@ OCR fallback requires `pdftoppm` and `tesseract` binaries on the host/container.
 1. **Via UI**: Go to Documents → drag & drop files or click to upload
 2. **Zip Upload**: Upload a .zip file containing your markdown docs
 3. **Manual**: Place .md/.mdx files in the `docs/` folder
+4. **Convert on Upload**: In Documents, enable "Convert on upload" to run backend conversion before storing files (single-file uploads)
+
+You can also open per-file conversion reports from the Documents list.
 
 ### Indexing
 

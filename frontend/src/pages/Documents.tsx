@@ -31,6 +31,26 @@ interface ConsoleLog {
   message: string
 }
 
+interface ConvertUploadResponse {
+  success: boolean
+  filesAdded: number
+  files: string[]
+  skippedFiles?: string[]
+  renamedFiles?: Array<{ from: string; to: string }>
+  conversion?: {
+    sourceFormat: string
+    appliedActions: string[]
+    warnings: string[]
+    markdownLength: number
+  }
+  ingestion?: {
+    filesUpdated: number
+    chunksUpserted: number
+    errors: string[]
+  } | null
+  error?: string
+}
+
 interface ConversionMetadataRecord {
   filePath: string
   originalFileName: string
@@ -57,6 +77,10 @@ export default function Documents() {
   const [showConsole, setShowConsole] = useState(false)
   const [ingestionProgress, setIngestionProgress] = useState({ current: 0, total: 0 })
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set())
+  const [convertOnUpload, setConvertOnUpload] = useState(true)
+  const [ingestAfterConvertUpload, setIngestAfterConvertUpload] = useState(false)
+  const [uploadConflictStrategy, setUploadConflictStrategy] = useState<'replace' | 'rename' | 'skip'>('replace')
+  const [lastConvertUploadResult, setLastConvertUploadResult] = useState<ConvertUploadResponse | null>(null)
   const [conversionMetadata, setConversionMetadata] = useState<ConversionMetadataRecord | null>(null)
   const [metadataLoadingPath, setMetadataLoadingPath] = useState<string | null>(null)
   const consoleEndRef = useRef<HTMLDivElement>(null)
@@ -131,29 +155,61 @@ export default function Documents() {
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return
 
+    const file = acceptedFiles[0]
+    const isZip = file.name.toLowerCase().endsWith('.zip')
+
     setUploading(true)
+    setLastConvertUploadResult(null)
     const formData = new FormData()
-    formData.append('file', acceptedFiles[0])
+    formData.append('file', file)
 
     try {
-      const res = await apiFetch('/api/documents/upload', {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await res.json()
+      if (convertOnUpload && !isZip) {
+        formData.append('conflictStrategy', uploadConflictStrategy)
+        formData.append('ingestNow', String(ingestAfterConvertUpload))
+        formData.append('intent', JSON.stringify({ operation: 'convert' }))
 
-      if (data.success) {
-        toast('success', `Uploaded ${data.filesAdded} file(s)`)
-        fetchDocuments()
+        const res = await apiFetch('/api/documents/convert-upload', {
+          method: 'POST',
+          body: formData,
+        })
+        const data = await res.json() as ConvertUploadResponse
+
+        if (data.success) {
+          setLastConvertUploadResult(data)
+          const ingestSummary = data.ingestion
+            ? ` and ingested ${data.ingestion.chunksUpserted} chunks`
+            : ''
+          toast('success', `Converted ${data.filesAdded} file(s)${ingestSummary}`)
+          fetchDocuments()
+          fetchIngestionStatus()
+        } else {
+          toast('error', data.error || 'Convert upload failed')
+        }
       } else {
-        toast('error', data.error || 'Upload failed')
+        if (convertOnUpload && isZip) {
+          toast('info', 'Convert-on-upload currently applies to single files; uploaded ZIP as-is.')
+        }
+
+        const res = await apiFetch('/api/documents/upload', {
+          method: 'POST',
+          body: formData,
+        })
+        const data = await res.json()
+
+        if (data.success) {
+          toast('success', `Uploaded ${data.filesAdded} file(s)`)
+          fetchDocuments()
+        } else {
+          toast('error', data.error || 'Upload failed')
+        }
       }
     } catch (error) {
       toast('error', 'Upload failed')
     } finally {
       setUploading(false)
     }
-  }, [])
+  }, [convertOnUpload, ingestAfterConvertUpload, uploadConflictStrategy])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -495,6 +551,59 @@ export default function Documents() {
 
       {/* Upload Zone */}
       <Card title="Upload Documents" description="Upload markdown files or a zip archive">
+        <div className="mb-4 grid gap-3 md:grid-cols-2">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={convertOnUpload}
+              onChange={e => setConvertOnUpload(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300"
+            />
+            Convert on upload (single files)
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={ingestAfterConvertUpload}
+              onChange={e => setIngestAfterConvertUpload(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300"
+              disabled={!convertOnUpload}
+            />
+            Ingest immediately after conversion
+          </label>
+
+          <label className="text-sm text-slate-700">
+            If file exists
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={uploadConflictStrategy}
+              onChange={e => setUploadConflictStrategy(e.target.value as 'replace' | 'rename' | 'skip')}
+              disabled={!convertOnUpload}
+            >
+              <option value="replace">Replace existing</option>
+              <option value="rename">Rename new file</option>
+              <option value="skip">Skip upload</option>
+            </select>
+          </label>
+
+          <div className="text-xs text-slate-500">
+            <p className="font-medium text-slate-700 mb-1">Supported conversion formats</p>
+            <div className="flex flex-wrap gap-1">
+              {['.md', '.txt', '.html', '.docx', '.pdf'].map(format => (
+                <span key={format} className="px-2 py-1 rounded bg-slate-100 text-slate-700">
+                  {format}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+          <p>Upload limits: single file up to 100MB.</p>
+          <p>ZIP archives are supported for raw upload; conversion-on-upload currently applies to single files.</p>
+        </div>
+
         <div
           {...getRootProps()}
           className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
@@ -515,6 +624,49 @@ export default function Documents() {
           )}
         </div>
       </Card>
+
+      {lastConvertUploadResult && (
+        <Card title="Latest Conversion Upload" description="Most recent convert-on-upload result">
+          <div className="space-y-2 text-sm">
+            <p>
+              <strong>Files written:</strong> {lastConvertUploadResult.files.join(', ') || 'None'}
+            </p>
+            {lastConvertUploadResult.skippedFiles && lastConvertUploadResult.skippedFiles.length > 0 && (
+              <p>
+                <strong>Skipped:</strong> {lastConvertUploadResult.skippedFiles.join(', ')}
+              </p>
+            )}
+            {lastConvertUploadResult.renamedFiles && lastConvertUploadResult.renamedFiles.length > 0 && (
+              <p>
+                <strong>Renamed:</strong>{' '}
+                {lastConvertUploadResult.renamedFiles.map(r => `${r.from} -> ${r.to}`).join(', ')}
+              </p>
+            )}
+            {lastConvertUploadResult.conversion && (
+              <>
+                <p>
+                  <strong>Converter:</strong> {lastConvertUploadResult.conversion.sourceFormat.toUpperCase()}
+                </p>
+                <p>
+                  <strong>Actions:</strong>{' '}
+                  {lastConvertUploadResult.conversion.appliedActions.join(', ') || 'convert'}
+                </p>
+                {lastConvertUploadResult.conversion.warnings.length > 0 && (
+                  <p className="text-amber-700">
+                    <strong>Warnings:</strong> {lastConvertUploadResult.conversion.warnings.join(' | ')}
+                  </p>
+                )}
+              </>
+            )}
+            {lastConvertUploadResult.ingestion && (
+              <p>
+                <strong>Ingestion:</strong> {lastConvertUploadResult.ingestion.filesUpdated} files,{' '}
+                {lastConvertUploadResult.ingestion.chunksUpserted} chunks
+              </p>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Ingestion Console */}
       {showConsole && (
