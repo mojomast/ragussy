@@ -58,6 +58,11 @@ const envSchema = z.object({
   OCR_FALLBACK_ENABLED: z.string().default('false').transform(v => v === 'true'),
   OCR_MAX_PAGES: z.string().default('3').transform(Number),
   OCR_COMMAND_TIMEOUT_MS: z.string().default('20000').transform(Number),
+  CONVERTER_ENGINE_DEFAULT: z.enum(['node-native', 'convert-wasm']).default('node-native'),
+  CONVERTER_ENGINE_TEXT: z.enum(['node-native', 'convert-wasm']).default('node-native'),
+  CONVERTER_ENGINE_HTML: z.enum(['node-native', 'convert-wasm']).default('node-native'),
+  CONVERTER_ENGINE_DOCX: z.enum(['node-native', 'convert-wasm']).default('node-native'),
+  CONVERTER_ENGINE_PDF: z.enum(['node-native', 'convert-wasm']).default('node-native'),
 
   // Custom System Prompt
   CUSTOM_SYSTEM_PROMPT: z.string().optional(),

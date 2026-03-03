@@ -39,10 +39,35 @@ interface ConvertUploadResponse {
   renamedFiles?: Array<{ from: string; to: string }>
   conversion?: {
     sourceFormat: string
+    converter?: string
+    extractedTitle?: string | null
     appliedActions: string[]
     warnings: string[]
     markdownLength: number
   }
+  ingestion?: {
+    filesUpdated: number
+    chunksUpserted: number
+    errors: string[]
+  } | null
+  error?: string
+}
+
+interface ConvertZipResponse {
+  success: boolean
+  totals: {
+    processed: number
+    converted: number
+    skipped: number
+    failed: number
+  }
+  rows: Array<{
+    fileName: string
+    status: 'converted' | 'skipped' | 'failed'
+    storedFile?: string
+    message?: string
+    warnings?: string[]
+  }>
   ingestion?: {
     filesUpdated: number
     chunksUpserted: number
@@ -57,11 +82,28 @@ interface ConversionMetadataRecord {
   sourceMimeType: string
   sourceFormat: string
   converter: string
+  extractedTitle?: string | null
   warnings: string[]
   ignoredInstructions: string[]
   appliedActions: string[]
   checksumSha256: string
   convertedAt: string
+  ingestionSummary?: {
+    filesUpdated: number
+    chunksUpserted: number
+    errorCount: number
+    ingestedAt: string
+  } | null
+}
+
+interface ConversionFailureRecord {
+  id: string
+  originalFileName: string
+  sourceMimeType: string
+  error: string
+  createdAt: string
+  retryCount: number
+  lastRetriedAt?: string
 }
 
 export default function Documents() {
@@ -81,7 +123,10 @@ export default function Documents() {
   const [ingestAfterConvertUpload, setIngestAfterConvertUpload] = useState(false)
   const [uploadConflictStrategy, setUploadConflictStrategy] = useState<'replace' | 'rename' | 'skip'>('replace')
   const [lastConvertUploadResult, setLastConvertUploadResult] = useState<ConvertUploadResponse | null>(null)
+  const [lastConvertZipResult, setLastConvertZipResult] = useState<ConvertZipResponse | null>(null)
   const [conversionMetadata, setConversionMetadata] = useState<ConversionMetadataRecord | null>(null)
+  const [conversionFailures, setConversionFailures] = useState<ConversionFailureRecord[]>([])
+  const [retryingFailureId, setRetryingFailureId] = useState<string | null>(null)
   const [metadataLoadingPath, setMetadataLoadingPath] = useState<string | null>(null)
   const consoleEndRef = useRef<HTMLDivElement>(null)
   const { toast } = useToast()
@@ -147,9 +192,24 @@ export default function Documents() {
     }
   }
 
+  const fetchConversionFailures = async () => {
+    try {
+      const res = await apiFetch('/api/documents/conversion-failures')
+      if (!res.ok) {
+        return
+      }
+
+      const data = await res.json()
+      setConversionFailures(data.failures || [])
+    } catch {
+      // Ignore
+    }
+  }
+
   useEffect(() => {
     fetchDocuments()
     fetchIngestionStatus()
+    fetchConversionFailures()
   }, [])
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
@@ -160,11 +220,35 @@ export default function Documents() {
 
     setUploading(true)
     setLastConvertUploadResult(null)
+    setLastConvertZipResult(null)
     const formData = new FormData()
     formData.append('file', file)
 
     try {
-      if (convertOnUpload && !isZip) {
+      if (convertOnUpload && isZip) {
+        formData.append('conflictStrategy', uploadConflictStrategy)
+        formData.append('ingestNow', String(ingestAfterConvertUpload))
+        formData.append('intent', JSON.stringify({ operation: 'convert' }))
+
+        const res = await apiFetch('/api/documents/convert-zip', {
+          method: 'POST',
+          body: formData,
+        })
+        const data = await res.json() as ConvertZipResponse
+
+        if (data.success) {
+          setLastConvertZipResult(data)
+          toast(
+            'success',
+            `ZIP converted: ${data.totals.converted} converted, ${data.totals.failed} failed, ${data.totals.skipped} skipped`
+          )
+          fetchDocuments()
+          fetchIngestionStatus()
+          fetchConversionFailures()
+        } else {
+          toast('error', data.error || 'Bulk convert failed')
+        }
+      } else if (convertOnUpload && !isZip) {
         formData.append('conflictStrategy', uploadConflictStrategy)
         formData.append('ingestNow', String(ingestAfterConvertUpload))
         formData.append('intent', JSON.stringify({ operation: 'convert' }))
@@ -183,14 +267,15 @@ export default function Documents() {
           toast('success', `Converted ${data.filesAdded} file(s)${ingestSummary}`)
           fetchDocuments()
           fetchIngestionStatus()
+          fetchConversionFailures()
         } else {
+          if ((data as any).conversionFailureId) {
+            toast('error', `Convert upload failed (failure id: ${(data as any).conversionFailureId})`)
+            fetchConversionFailures()
+          }
           toast('error', data.error || 'Convert upload failed')
         }
       } else {
-        if (convertOnUpload && isZip) {
-          toast('info', 'Convert-on-upload currently applies to single files; uploaded ZIP as-is.')
-        }
-
         const res = await apiFetch('/api/documents/upload', {
           method: 'POST',
           body: formData,
@@ -200,6 +285,7 @@ export default function Documents() {
         if (data.success) {
           toast('success', `Uploaded ${data.filesAdded} file(s)`)
           fetchDocuments()
+          fetchConversionFailures()
         } else {
           toast('error', data.error || 'Upload failed')
         }
@@ -419,6 +505,34 @@ export default function Documents() {
     }
   }
 
+  const handleRetryConversionFailure = async (failureId: string) => {
+    setRetryingFailureId(failureId)
+    try {
+      const res = await apiFetch(`/api/documents/conversion-failures/${failureId}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+      const data = await res.json()
+
+      if (res.ok && data.success) {
+        toast('success', 'Conversion retry succeeded')
+        fetchDocuments()
+        fetchIngestionStatus()
+        fetchConversionFailures()
+        if (data.files && data.files.length > 0) {
+          handleViewConversionReport(data.files[0])
+        }
+      } else {
+        toast('error', data.error || 'Retry failed')
+        fetchConversionFailures()
+      }
+    } catch {
+      toast('error', 'Retry failed')
+    } finally {
+      setRetryingFailureId(null)
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -601,7 +715,7 @@ export default function Documents() {
 
         <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
           <p>Upload limits: single file up to 100MB.</p>
-          <p>ZIP archives are supported for raw upload; conversion-on-upload currently applies to single files.</p>
+          <p>ZIP archives can be converted in bulk with per-file status when convert-on-upload is enabled.</p>
         </div>
 
         <div
@@ -645,8 +759,16 @@ export default function Documents() {
             {lastConvertUploadResult.conversion && (
               <>
                 <p>
-                  <strong>Converter:</strong> {lastConvertUploadResult.conversion.sourceFormat.toUpperCase()}
+                  <strong>Source format:</strong> {lastConvertUploadResult.conversion.sourceFormat.toUpperCase()}
                 </p>
+                <p>
+                  <strong>Engine:</strong> {lastConvertUploadResult.conversion.converter || 'node-native'}
+                </p>
+                {lastConvertUploadResult.conversion.extractedTitle && (
+                  <p>
+                    <strong>Extracted title:</strong> {lastConvertUploadResult.conversion.extractedTitle}
+                  </p>
+                )}
                 <p>
                   <strong>Actions:</strong>{' '}
                   {lastConvertUploadResult.conversion.appliedActions.join(', ') || 'convert'}
@@ -664,6 +786,83 @@ export default function Documents() {
                 {lastConvertUploadResult.ingestion.chunksUpserted} chunks
               </p>
             )}
+          </div>
+        </Card>
+      )}
+
+      {lastConvertZipResult && (
+        <Card title="Latest ZIP Conversion" description="Bulk conversion result with per-file status">
+          <div className="text-sm mb-3">
+            <p>
+              <strong>Processed:</strong> {lastConvertZipResult.totals.processed} ·{' '}
+              <strong>Converted:</strong> {lastConvertZipResult.totals.converted} ·{' '}
+              <strong>Skipped:</strong> {lastConvertZipResult.totals.skipped} ·{' '}
+              <strong>Failed:</strong> {lastConvertZipResult.totals.failed}
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border border-slate-200 rounded-lg">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="text-left px-3 py-2 border-b">File</th>
+                  <th className="text-left px-3 py-2 border-b">Status</th>
+                  <th className="text-left px-3 py-2 border-b">Stored As</th>
+                  <th className="text-left px-3 py-2 border-b">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lastConvertZipResult.rows.map(row => (
+                  <tr key={row.fileName} className="border-b last:border-b-0">
+                    <td className="px-3 py-2">{row.fileName}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs ${
+                          row.status === 'converted'
+                            ? 'bg-green-100 text-green-800'
+                            : row.status === 'failed'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {row.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">{row.storedFile || '-'}</td>
+                    <td className="px-3 py-2">{row.message || row.warnings?.join(' | ') || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {conversionFailures.length > 0 && (
+        <Card title="Conversion Failures" description="Saved raw uploads that failed conversion and can be retried">
+          <div className="space-y-3">
+            {conversionFailures.map(failure => (
+              <div
+                key={failure.id}
+                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 flex items-start justify-between gap-3"
+              >
+                <div className="text-sm">
+                  <p className="font-medium text-amber-900">{failure.originalFileName}</p>
+                  <p className="text-amber-800">{failure.error}</p>
+                  <p className="text-amber-700 text-xs mt-1">
+                    {formatDate(failure.createdAt)} · retries: {failure.retryCount}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleRetryConversionFailure(failure.id)}
+                  loading={retryingFailureId === failure.id}
+                >
+                  Retry
+                </Button>
+              </div>
+            ))}
           </div>
         </Card>
       )}
@@ -803,8 +1002,17 @@ export default function Documents() {
             <p><strong>Source format:</strong> {conversionMetadata.sourceFormat}</p>
             <p><strong>Source MIME:</strong> {conversionMetadata.sourceMimeType}</p>
             <p><strong>Converter:</strong> {conversionMetadata.converter}</p>
+            <p><strong>Extracted title:</strong> {conversionMetadata.extractedTitle || 'None'}</p>
             <p><strong>Converted at:</strong> {formatDate(conversionMetadata.convertedAt)}</p>
             <p><strong>Checksum (sha256):</strong> <code>{conversionMetadata.checksumSha256}</code></p>
+
+            {conversionMetadata.ingestionSummary && (
+              <p>
+                <strong>Ingestion summary:</strong> {conversionMetadata.ingestionSummary.filesUpdated} files,{' '}
+                {conversionMetadata.ingestionSummary.chunksUpserted} chunks,{' '}
+                {conversionMetadata.ingestionSummary.errorCount} errors
+              </p>
+            )}
 
             <div>
               <p className="font-medium text-slate-700">Applied Actions</p>

@@ -12,6 +12,8 @@ import {
   type SummaryStyle,
 } from './document-conversion-intent.js';
 import { getChatModel } from './llm.js';
+import { convertWithConvertWasm } from './convert-wasm-adapter.js';
+import { resolveConverterEngineForFormat, type SourceFormatClass } from './converter-engine.js';
 
 const turndown = new TurndownService({
   headingStyle: 'atx',
@@ -71,7 +73,8 @@ export interface RawDocumentInput {
 export interface ConvertedDocument {
   fileName: string;
   markdown: string;
-  sourceFormat: 'md' | 'txt' | 'html' | 'docx' | 'pdf';
+  sourceFormat: SourceFormatClass;
+  converter: 'node-native' | 'convert-wasm';
   warnings: string[];
 }
 
@@ -240,35 +243,66 @@ function assertSupportedAttachmentType(fileName: string, mimeType?: string | nul
   }
 }
 
-export async function convertDocument(input: RawDocumentInput): Promise<ConvertedDocument> {
-  const ext = path.extname(input.fileName).toLowerCase();
-  const mimeType = input.mimeType?.toLowerCase();
-  const outputName = sanitizeOutputName(input.fileName);
+function detectSourceFormat(fileName: string, mimeType?: string | null): SourceFormatClass | null {
+  const ext = path.extname(fileName).toLowerCase();
+  const normalizedMime = mimeType?.toLowerCase();
 
-  assertSupportedAttachmentType(input.fileName, mimeType);
-
-  if (MARKDOWN_EXTENSIONS.has(ext) || mimeType === 'text/markdown') {
-    return {
-      fileName: outputName,
-      markdown: decodeUtf8(input.bytes).trim(),
-      sourceFormat: 'md',
-      warnings: [],
-    };
+  if (MARKDOWN_EXTENSIONS.has(ext) || normalizedMime === 'text/markdown') {
+    return 'md';
   }
 
   if (
     PLAINTEXT_EXTENSIONS.has(ext) ||
-    (mimeType?.startsWith('text/') && mimeType !== 'text/html')
+    (normalizedMime?.startsWith('text/') && normalizedMime !== 'text/html')
   ) {
+    return 'txt';
+  }
+
+  if (ext === '.html' || ext === '.htm' || normalizedMime === 'text/html') {
+    return 'html';
+  }
+
+  if (
+    ext === '.docx' ||
+    normalizedMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ) {
+    return 'docx';
+  }
+
+  if (ext === '.pdf' || normalizedMime === 'application/pdf') {
+    return 'pdf';
+  }
+
+  return null;
+}
+
+async function convertDocumentNodeNative(
+  input: RawDocumentInput,
+  sourceFormat: SourceFormatClass,
+  outputName: string,
+  preWarnings: string[] = []
+): Promise<ConvertedDocument> {
+  if (sourceFormat === 'md') {
+    return {
+      fileName: outputName,
+      markdown: decodeUtf8(input.bytes).trim(),
+      sourceFormat: 'md',
+      converter: 'node-native',
+      warnings: preWarnings,
+    };
+  }
+
+  if (sourceFormat === 'txt') {
     return {
       fileName: outputName,
       markdown: decodeUtf8(input.bytes).trim(),
       sourceFormat: 'txt',
-      warnings: [],
+      converter: 'node-native',
+      warnings: preWarnings,
     };
   }
 
-  if (ext === '.html' || ext === '.htm' || mimeType === 'text/html') {
+  if (sourceFormat === 'html') {
     const html = decodeUtf8(input.bytes);
     const markdown = turndown.turndown(html).trim();
 
@@ -276,14 +310,12 @@ export async function convertDocument(input: RawDocumentInput): Promise<Converte
       fileName: outputName,
       markdown,
       sourceFormat: 'html',
-      warnings: [],
+      converter: 'node-native',
+      warnings: preWarnings,
     };
   }
 
-  if (
-    ext === '.docx' ||
-    mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  ) {
+  if (sourceFormat === 'docx') {
     const { value, messages } = await mammoth.convertToHtml({
       buffer: Buffer.from(input.bytes),
     });
@@ -292,44 +324,70 @@ export async function convertDocument(input: RawDocumentInput): Promise<Converte
       fileName: outputName,
       markdown: turndown.turndown(value).trim(),
       sourceFormat: 'docx',
-      warnings: messages.map(msg => msg.message),
+      converter: 'node-native',
+      warnings: [...preWarnings, ...messages.map(msg => msg.message)],
     };
   }
 
-  if (ext === '.pdf' || mimeType === 'application/pdf') {
-    const parsed = await pdfParse(Buffer.from(input.bytes));
-    let markdown = parsed.text.trim();
-    const warnings: string[] = [];
+  const parsed = await pdfParse(Buffer.from(input.bytes));
+  let markdown = parsed.text.trim();
+  const warnings: string[] = [...preWarnings];
 
-    if (!markdown) {
-      const ocr = await runPdfOcrFallback(Buffer.from(input.bytes));
-      warnings.push(...ocr.warnings);
+  if (!markdown) {
+    const ocr = await runPdfOcrFallback(Buffer.from(input.bytes));
+    warnings.push(...ocr.warnings);
 
-      if (ocr.text.trim()) {
-        markdown = ocr.text.trim();
-        warnings.push('Used OCR fallback for PDF text extraction.');
-      }
+    if (ocr.text.trim()) {
+      markdown = ocr.text.trim();
+      warnings.push('Used OCR fallback for PDF text extraction.');
     }
+  }
 
-    if (!markdown) {
-      warnings.push('PDF text extraction returned empty content (possibly scanned/image-only PDF).');
-      return {
-        fileName: outputName,
-        markdown: '',
-        sourceFormat: 'pdf',
-        warnings,
-      };
-    }
-
+  if (!markdown) {
+    warnings.push('PDF text extraction returned empty content (possibly scanned/image-only PDF).');
     return {
       fileName: outputName,
-      markdown,
+      markdown: '',
       sourceFormat: 'pdf',
+      converter: 'node-native',
       warnings,
     };
   }
 
-  unsupportedFormatError(ext, mimeType);
+  return {
+    fileName: outputName,
+    markdown,
+    sourceFormat: 'pdf',
+    converter: 'node-native',
+    warnings,
+  };
+}
+
+export async function convertDocument(input: RawDocumentInput): Promise<ConvertedDocument> {
+  const mimeType = input.mimeType?.toLowerCase();
+  const outputName = sanitizeOutputName(input.fileName);
+
+  assertSupportedAttachmentType(input.fileName, mimeType);
+
+  const sourceFormat = detectSourceFormat(input.fileName, mimeType);
+  if (!sourceFormat) {
+    unsupportedFormatError(path.extname(input.fileName).toLowerCase(), mimeType);
+  }
+
+  const resolution = resolveConverterEngineForFormat(sourceFormat);
+  if (resolution.engine === 'convert-wasm') {
+    try {
+      return await convertWithConvertWasm(input, sourceFormat, outputName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown convert-wasm adapter error';
+      logger.warn({ error: message, sourceFormat }, 'convert-wasm conversion failed, falling back to node-native');
+      return await convertDocumentNodeNative(input, sourceFormat, outputName, [
+        `Configured convert-wasm engine failed for ${sourceFormat}; fell back to node-native.`,
+      ]);
+    }
+  }
+
+  return await convertDocumentNodeNative(input, sourceFormat, outputName);
 }
 
 export async function convertDocumentWithIntent(
@@ -416,6 +474,7 @@ export async function convertDocumentWithIntent(
     fileName,
     markdown: normalizeMarkdown(markdown),
     sourceFormat: base.sourceFormat,
+    converter: base.converter,
     warnings: [...base.warnings, ...dedupedIgnored.map(note => `Ignored instruction: ${note}`)],
     appliedActions,
     ignoredInstructions: dedupedIgnored,

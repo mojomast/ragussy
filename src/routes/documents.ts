@@ -10,7 +10,13 @@ import { requireConfiguredAuth } from '../middleware/route-auth.js';
 import {
   convertDocumentWithIntent,
   getConversionMetadata,
+  getConversionFailure,
+  getFailureRawAbsolutePath,
+  listConversionFailures,
+  markConversionFailureRetried,
   normalizeIntent,
+  recordConversionFailure,
+  resolveConversionFailure,
   upsertConversionMetadata,
   type ConversionIntent,
 } from '../services/index.js';
@@ -230,6 +236,119 @@ function parseIntentFromBody(intentRaw: unknown): ConversionIntent {
   return normalizeIntent(intentRaw);
 }
 
+function extractTitleFromMarkdown(markdown: string): string | null {
+  const headingMatch = markdown.match(/^#\s+(.+)$/m);
+  if (!headingMatch?.[1]) {
+    return null;
+  }
+
+  return headingMatch[1].trim();
+}
+
+interface ConvertAndStoreParams {
+  originalFileName: string;
+  sourceMimeType: string;
+  bytes: Uint8Array;
+  conflictStrategy: ConflictStrategy;
+  ingestNow: boolean;
+  intent: ConversionIntent;
+}
+
+async function convertAndStoreDocument(params: ConvertAndStoreParams): Promise<{
+  conflictStrategy: ConflictStrategy;
+  filesAdded: number;
+  files: string[];
+  skippedFiles: string[];
+  renamedFiles: Array<{ from: string; to: string }>;
+  conversion: {
+    sourceFormat: string;
+    converter: 'node-native' | 'convert-wasm';
+    extractedTitle: string | null;
+    appliedActions: string[];
+    warnings: string[];
+    ignoredInstructions: string[];
+    markdownLength: number;
+  };
+  ingestion: any;
+}> {
+  const docsPath = getDocsPath();
+  const converted = await convertDocumentWithIntent(
+    {
+      fileName: params.originalFileName,
+      mimeType: params.sourceMimeType,
+      bytes: params.bytes,
+    },
+    params.intent
+  );
+
+  const resolved = await resolveConflictPath(docsPath, converted.fileName, params.conflictStrategy);
+  const skippedFiles: string[] = [];
+  const renamedFiles: Array<{ from: string; to: string }> = [];
+  const writtenFiles: string[] = [];
+
+  if (resolved.action === 'skip') {
+    skippedFiles.push(resolved.relativePath);
+  } else {
+    await fs.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
+    await fs.writeFile(resolved.absolutePath, converted.markdown, 'utf-8');
+    writtenFiles.push(resolved.relativePath);
+
+    if (resolved.renamedFrom) {
+      renamedFiles.push({ from: resolved.renamedFrom, to: resolved.relativePath });
+    }
+  }
+
+  let ingestionResult: any = null;
+  if (params.ingestNow && writtenFiles.length > 0) {
+    ingestionResult = await ingestSelected({ filePaths: writtenFiles });
+  }
+
+  if (writtenFiles.length > 0) {
+    await upsertConversionMetadata({
+      filePath: writtenFiles[0],
+      originalFileName: params.originalFileName,
+      sourceMimeType: params.sourceMimeType || 'application/octet-stream',
+      sourceFormat: converted.sourceFormat,
+      converter: converted.converter,
+      extractedTitle: extractTitleFromMarkdown(converted.markdown),
+      warnings: converted.warnings,
+      ignoredInstructions: converted.ignoredInstructions,
+      appliedActions: converted.appliedActions,
+      checksumSha256: crypto
+        .createHash('sha256')
+        .update(converted.markdown, 'utf-8')
+        .digest('hex'),
+      convertedAt: new Date().toISOString(),
+      ingestionSummary: ingestionResult
+        ? {
+            filesUpdated: ingestionResult.filesUpdated ?? 0,
+            chunksUpserted: ingestionResult.chunksUpserted ?? 0,
+            errorCount: Array.isArray(ingestionResult.errors) ? ingestionResult.errors.length : 0,
+            ingestedAt: new Date().toISOString(),
+          }
+        : null,
+    });
+  }
+
+  return {
+    conflictStrategy: params.conflictStrategy,
+    filesAdded: writtenFiles.length,
+    files: writtenFiles,
+    skippedFiles,
+    renamedFiles,
+    conversion: {
+      sourceFormat: converted.sourceFormat,
+      converter: converted.converter,
+      extractedTitle: extractTitleFromMarkdown(converted.markdown),
+      appliedActions: converted.appliedActions,
+      warnings: converted.warnings,
+      ignoredInstructions: converted.ignoredInstructions,
+      markdownLength: converted.markdown.length,
+    },
+    ingestion: ingestionResult,
+  };
+}
+
 function validateZipEntries(entries: AdmZip.IZipEntry[]): void {
   if (entries.length > MAX_ZIP_ENTRIES) {
     throw new Error(`Zip contains too many entries (${entries.length}). Limit is ${MAX_ZIP_ENTRIES}.`);
@@ -257,6 +376,21 @@ function validateZipEntries(entries: AdmZip.IZipEntry[]): void {
       );
     }
   }
+}
+
+function guessMimeTypeFromFileName(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase();
+  if (ext === '.md' || ext === '.mdx' || ext === '.markdown') return 'text/markdown';
+  if (ext === '.txt' || ext === '.log' || ext === '.csv' || ext === '.tsv') return 'text/plain';
+  if (ext === '.html' || ext === '.htm') return 'text/html';
+  if (ext === '.json') return 'application/json';
+  if (ext === '.xml') return 'application/xml';
+  if (ext === '.yaml' || ext === '.yml') return 'application/yaml';
+  if (ext === '.pdf') return 'application/pdf';
+  if (ext === '.docx') {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  return 'application/octet-stream';
 }
 
 // Get document content
@@ -393,74 +527,44 @@ router.post('/upload', requireConfiguredAuth, upload.single('file'), async (req:
 // Convert + upload in one request (for Discord bot and future UI use)
 router.post('/convert-upload', requireConfiguredAuth, upload.single('file'), async (req: Request, res: Response) => {
   let uploadedPath = '';
+  let uploadedBytes: Uint8Array | null = null;
+  let originalFileName = '';
+  let sourceMimeType = '';
+  let conflictStrategy: ConflictStrategy = 'replace';
+  let ingestNow = true;
+  let intent: ConversionIntent = normalizeIntent({});
 
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const docsPath = getDocsPath();
     uploadedPath = req.file.path;
+    originalFileName = req.file.originalname;
+    sourceMimeType = req.file.mimetype || 'application/octet-stream';
 
-    const conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy);
-    const ingestNow = parseBooleanFlag(req.body?.ingestNow, true);
-    const intent = parseIntentFromBody(req.body?.intent);
+    conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy);
+    ingestNow = parseBooleanFlag(req.body?.ingestNow, true);
+    intent = parseIntentFromBody(req.body?.intent);
 
-    const fileBytes = await fs.readFile(uploadedPath);
-    const converted = await convertDocumentWithIntent(
-      {
-        fileName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        bytes: new Uint8Array(fileBytes),
-      },
-      intent
-    );
+    uploadedBytes = new Uint8Array(await fs.readFile(uploadedPath));
 
-    const resolved = await resolveConflictPath(docsPath, converted.fileName, conflictStrategy);
-    const skippedFiles: string[] = [];
-    const renamedFiles: Array<{ from: string; to: string }> = [];
-    const writtenFiles: string[] = [];
-
-    if (resolved.action === 'skip') {
-      skippedFiles.push(resolved.relativePath);
-    } else {
-      await fs.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
-      await fs.writeFile(resolved.absolutePath, converted.markdown, 'utf-8');
-      writtenFiles.push(resolved.relativePath);
-
-      await upsertConversionMetadata({
-        filePath: resolved.relativePath,
-        originalFileName: req.file.originalname,
-        sourceMimeType: req.file.mimetype || 'application/octet-stream',
-        sourceFormat: converted.sourceFormat,
-        converter: 'node-native',
-        warnings: converted.warnings,
-        ignoredInstructions: converted.ignoredInstructions,
-        appliedActions: converted.appliedActions,
-        checksumSha256: crypto
-          .createHash('sha256')
-          .update(converted.markdown, 'utf-8')
-          .digest('hex'),
-        convertedAt: new Date().toISOString(),
-      });
-
-      if (resolved.renamedFrom) {
-        renamedFiles.push({ from: resolved.renamedFrom, to: resolved.relativePath });
-      }
-    }
-
-    let ingestionResult: any = null;
-    if (ingestNow && writtenFiles.length > 0) {
-      ingestionResult = await ingestSelected({ filePaths: writtenFiles });
-    }
+    const result = await convertAndStoreDocument({
+      originalFileName,
+      sourceMimeType,
+      bytes: uploadedBytes,
+      conflictStrategy,
+      ingestNow,
+      intent,
+    });
 
     logger.info(
       {
-        originalFileName: req.file.originalname,
-        storedFile: writtenFiles[0] ?? null,
-        sourceFormat: converted.sourceFormat,
-        actions: converted.appliedActions,
-        warnings: converted.warnings.length,
+        originalFileName,
+        storedFile: result.files[0] ?? null,
+        sourceFormat: result.conversion.sourceFormat,
+        actions: result.conversion.appliedActions,
+        warnings: result.conversion.warnings.length,
         conflictStrategy,
         ingestNow,
       },
@@ -469,27 +573,188 @@ router.post('/convert-upload', requireConfiguredAuth, upload.single('file'), asy
 
     return res.json({
       success: true,
-      conflictStrategy,
-      filesAdded: writtenFiles.length,
-      files: writtenFiles,
-      skippedFiles,
-      renamedFiles,
-      conversion: {
-        sourceFormat: converted.sourceFormat,
-        appliedActions: converted.appliedActions,
-        warnings: converted.warnings,
-        ignoredInstructions: converted.ignoredInstructions,
-        markdownLength: converted.markdown.length,
-      },
-      ingestion: ingestionResult,
+      ...result,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to convert-upload document');
-    return res.status(500).json({ error: 'Failed to convert and upload document' });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to convert and upload document';
+    let failureId: string | null = null;
+
+    if (uploadedBytes && originalFileName) {
+      try {
+        const failure = await recordConversionFailure({
+          originalFileName,
+          sourceMimeType: sourceMimeType || 'application/octet-stream',
+          rawBytes: uploadedBytes,
+          intent,
+          conflictStrategy,
+          ingestNow,
+          error: errorMessage,
+        });
+        failureId = failure.id;
+      } catch (recordError) {
+        logger.error({ recordError }, 'Failed to persist conversion failure payload');
+      }
+    }
+
+    logger.error({ error, failureId }, 'Failed to convert-upload document');
+    return res.status(500).json({
+      error: errorMessage,
+      conversionFailureId: failureId,
+    });
   } finally {
     if (uploadedPath) {
       await fs.unlink(uploadedPath).catch(() => undefined);
     }
+  }
+});
+
+router.post('/convert-zip', requireConfiguredAuth, upload.single('file'), async (req: Request, res: Response) => {
+  let uploadedPath = '';
+
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    if (path.extname(req.file.originalname).toLowerCase() !== '.zip') {
+      return res.status(400).json({ error: 'Only .zip files are supported for bulk conversion' });
+    }
+
+    uploadedPath = req.file.path;
+    const conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy);
+    const ingestNow = parseBooleanFlag(req.body?.ingestNow, false);
+    const intent = parseIntentFromBody(req.body?.intent);
+
+    const zip = new AdmZip(uploadedPath);
+    const entries = zip.getEntries();
+    validateZipEntries(entries);
+
+    const rows: Array<{
+      fileName: string;
+      status: 'converted' | 'skipped' | 'failed';
+      storedFile?: string;
+      message?: string;
+      warnings?: string[];
+    }> = [];
+    const allWrittenFiles: string[] = [];
+
+    for (const entry of entries) {
+      if (entry.isDirectory) {
+        continue;
+      }
+
+      const entryName = entry.entryName;
+      if (entryName.includes('__MACOSX') || entryName.split('/').some(part => part.startsWith('.'))) {
+        continue;
+      }
+
+      try {
+        const result = await convertAndStoreDocument({
+          originalFileName: entryName,
+          sourceMimeType: guessMimeTypeFromFileName(entryName),
+          bytes: new Uint8Array(entry.getData()),
+          conflictStrategy,
+          ingestNow: false,
+          intent,
+        });
+
+        if (result.filesAdded > 0) {
+          allWrittenFiles.push(...result.files);
+          rows.push({
+            fileName: entryName,
+            status: 'converted',
+            storedFile: result.files[0],
+            warnings: result.conversion.warnings,
+          });
+        } else {
+          rows.push({
+            fileName: entryName,
+            status: 'skipped',
+            message: result.skippedFiles[0] ? 'Skipped due to conflict strategy' : 'Skipped',
+          });
+        }
+      } catch (entryError) {
+        const message = entryError instanceof Error ? entryError.message : 'Unknown conversion error';
+        rows.push({
+          fileName: entryName,
+          status: 'failed',
+          message,
+        });
+      }
+    }
+
+    let ingestionResult: any = null;
+    if (ingestNow && allWrittenFiles.length > 0) {
+      ingestionResult = await ingestSelected({ filePaths: allWrittenFiles });
+    }
+
+    return res.json({
+      success: true,
+      conflictStrategy,
+      ingestNow,
+      totals: {
+        processed: rows.length,
+        converted: rows.filter(row => row.status === 'converted').length,
+        skipped: rows.filter(row => row.status === 'skipped').length,
+        failed: rows.filter(row => row.status === 'failed').length,
+      },
+      rows,
+      ingestion: ingestionResult,
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to convert zip upload');
+    return res.status(500).json({ error: 'Failed to convert zip upload' });
+  } finally {
+    if (uploadedPath) {
+      await fs.unlink(uploadedPath).catch(() => undefined);
+    }
+  }
+});
+
+router.get('/conversion-failures', requireConfiguredAuth, async (_req: Request, res: Response) => {
+  try {
+    const failures = await listConversionFailures();
+    return res.json({ failures });
+  } catch (error) {
+    logger.error({ error }, 'Failed to list conversion failures');
+    return res.status(500).json({ error: 'Failed to list conversion failures' });
+  }
+});
+
+router.post('/conversion-failures/:id/retry', requireConfiguredAuth, async (req: Request, res: Response) => {
+  try {
+    const failure = await getConversionFailure(req.params.id);
+    if (!failure) {
+      return res.status(404).json({ error: 'Conversion failure record not found' });
+    }
+
+    const rawPath = getFailureRawAbsolutePath(failure.rawRelativePath);
+    const rawBytes = new Uint8Array(await fs.readFile(rawPath));
+
+    const conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy ?? failure.conflictStrategy);
+    const ingestNow = parseBooleanFlag(req.body?.ingestNow, failure.ingestNow);
+    const intent = parseIntentFromBody(req.body?.intent ?? failure.intent);
+
+    try {
+      const result = await convertAndStoreDocument({
+        originalFileName: failure.originalFileName,
+        sourceMimeType: failure.sourceMimeType,
+        bytes: rawBytes,
+        conflictStrategy,
+        ingestNow,
+        intent,
+      });
+
+      await resolveConversionFailure(failure.id);
+      return res.json({ success: true, ...result });
+    } catch (retryError) {
+      const retryMessage = retryError instanceof Error ? retryError.message : 'Retry failed';
+      await markConversionFailureRetried(failure.id, retryMessage);
+      return res.status(500).json({ error: retryMessage });
+    }
+  } catch (error) {
+    logger.error({ error }, 'Failed to retry conversion failure');
+    return res.status(500).json({ error: 'Failed to retry conversion failure' });
   }
 });
 

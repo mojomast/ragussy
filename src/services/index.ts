@@ -27,7 +27,24 @@ export {
 } from './document-conversion-intent.js';
 
 export {
+  resolveConverterEngineForFormat,
+  type ConverterEngine,
+  type SourceFormatClass,
+  type EngineResolution,
+} from './converter-engine.js';
+
+export {
   upsertConversionMetadata,
   getConversionMetadata,
   type ConversionMetadataRecord,
 } from './conversion-metadata.js';
+
+export {
+  recordConversionFailure,
+  listConversionFailures,
+  getConversionFailure,
+  markConversionFailureRetried,
+  resolveConversionFailure,
+  getFailureRawAbsolutePath,
+  type ConversionFailureRecord,
+} from './conversion-failures.js';

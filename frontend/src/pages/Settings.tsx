@@ -46,6 +46,11 @@ interface Settings {
   apiKey: string
   adminToken: string
   customSystemPrompt: string
+  converterEngineDefault: 'node-native' | 'convert-wasm'
+  converterEngineText: 'node-native' | 'convert-wasm'
+  converterEngineHtml: 'node-native' | 'convert-wasm'
+  converterEngineDocx: 'node-native' | 'convert-wasm'
+  converterEnginePdf: 'node-native' | 'convert-wasm'
   // Discord Bot
   discordBotEnabled: boolean
   discordBotToken: string
@@ -190,6 +195,11 @@ export default function SettingsPage() {
         forumTimeDecayHalfLife: data.forumTimeDecayHalfLife || 365,
         forumMaxPostsPerThread: data.forumMaxPostsPerThread || 10,
         forumRetrievalCount: data.forumRetrievalCount || 30,
+        converterEngineDefault: data.converterEngineDefault || 'node-native',
+        converterEngineText: data.converterEngineText || 'node-native',
+        converterEngineHtml: data.converterEngineHtml || 'node-native',
+        converterEngineDocx: data.converterEngineDocx || 'node-native',
+        converterEnginePdf: data.converterEnginePdf || 'node-native',
       }
       
       setSettings(settingsWithDefaults as any)
@@ -1083,6 +1093,76 @@ export default function SettingsPage() {
             <strong>Note:</strong> Chunks are created respecting Markdown structure - headings are preserved and code blocks are never split.
             Each chunk is embedded individually (one API call per chunk) for maximum reliability.
             The pipeline is resumable - if interrupted, it will continue from the last successful chunk.
+          </p>
+        </div>
+      </Card>
+
+      <Card title="Converter Engine" description="Select conversion engine per format class">
+        <div className="grid grid-cols-2 gap-4">
+          <label className="text-sm text-slate-700">
+            Default Engine
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={settings.converterEngineDefault}
+              onChange={e => updateSetting('converterEngineDefault', e.target.value as 'node-native' | 'convert-wasm')}
+            >
+              <option value="node-native">node-native</option>
+              <option value="convert-wasm">convert-wasm</option>
+            </select>
+          </label>
+
+          <label className="text-sm text-slate-700">
+            Text Engine
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={settings.converterEngineText}
+              onChange={e => updateSetting('converterEngineText', e.target.value as 'node-native' | 'convert-wasm')}
+            >
+              <option value="node-native">node-native</option>
+              <option value="convert-wasm">convert-wasm</option>
+            </select>
+          </label>
+
+          <label className="text-sm text-slate-700">
+            HTML Engine
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={settings.converterEngineHtml}
+              onChange={e => updateSetting('converterEngineHtml', e.target.value as 'node-native' | 'convert-wasm')}
+            >
+              <option value="node-native">node-native</option>
+              <option value="convert-wasm">convert-wasm</option>
+            </select>
+          </label>
+
+          <label className="text-sm text-slate-700">
+            DOCX Engine
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={settings.converterEngineDocx}
+              onChange={e => updateSetting('converterEngineDocx', e.target.value as 'node-native' | 'convert-wasm')}
+            >
+              <option value="node-native">node-native</option>
+              <option value="convert-wasm">convert-wasm</option>
+            </select>
+          </label>
+
+          <label className="text-sm text-slate-700">
+            PDF Engine
+            <select
+              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={settings.converterEnginePdf}
+              onChange={e => updateSetting('converterEnginePdf', e.target.value as 'node-native' | 'convert-wasm')}
+            >
+              <option value="node-native">node-native</option>
+              <option value="convert-wasm">convert-wasm</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">
+          <p>
+            `convert-wasm` currently routes through an adapter and falls back to `node-native` if unavailable.
           </p>
         </div>
       </Card>

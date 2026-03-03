@@ -68,26 +68,31 @@ Current implementation notes:
 
 Status: **partially started**
 
-1. Add converter-engine abstraction:
+1. ✅ Add converter-engine abstraction:
    - `node-native` (default)
    - `convert-wasm` (opt-in)
-2. Build a server adapter for selected `convert` handlers (starting with pandoc-centric document formats).
-3. Add feature flag in settings to choose engine per format class.
-4. Add conversion compatibility matrix in docs and settings UI.
+2. ⏳ Build a server adapter for selected `convert` handlers (starting with pandoc-centric document formats).
+3. ✅ Add feature flag in settings to choose engine per format class.
+4. ⏳ Add conversion compatibility matrix in docs and settings UI.
+
+Current implementation notes:
+
+- Engine routing is now configurable per format class through settings/env.
+- `convert-wasm` currently routes through an adapter stub and falls back to `node-native` with warnings when unavailable.
 
 ## Phase 4: Web frontend rollout
 
-Status: **partially started**
+Status: **complete**
 
 1. ✅ Add "Convert on upload" toggle to Documents page.
 2. ✅ Add supported-format badges and max-size hints in uploader UX.
-3. 🔄 Show conversion report panel after upload:
-    - extracted title
-    - converter used
-    - warnings
-    - ingest result
-4. ⏳ Add retry action for failed conversions and save raw file for later reprocessing.
-5. ⏳ Add bulk zip conversion mode with per-file status table.
+3. ✅ Show conversion report panel after upload:
+    - ✅ extracted title
+    - ✅ converter used
+    - ✅ warnings
+    - ✅ ingest result
+4. ✅ Add retry action for failed conversions and save raw file for later reprocessing.
+5. ✅ Add bulk zip conversion mode with per-file status table.
 
 ## Phase 5: Reliability and quality
 
@@ -106,6 +111,6 @@ Status: **partially started**
 
 To maximize impact quickly, the next implementation slice should be:
 
-1. Phase 4 conversion UX completion (report details + retry + bulk conversion status).
-2. Phase 3 optional `convert` engine abstraction and adapter wiring.
-3. Phase 5 reliability items (snapshot tests, queue-based ingestion, metrics dashboard).
+1. Phase 3 adapter completion for real `convert-wasm` execution paths.
+2. Phase 5 reliability items (snapshot tests, queue-based ingestion, metrics dashboard).
+3. Metrics and observability polish for conversion + ingestion latency/failure tracking.

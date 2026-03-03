@@ -9,11 +9,18 @@ export interface ConversionMetadataRecord {
   sourceMimeType: string;
   sourceFormat: string;
   converter: 'node-native' | 'convert-wasm';
+  extractedTitle?: string | null;
   warnings: string[];
   ignoredInstructions: string[];
   appliedActions: string[];
   checksumSha256: string;
   convertedAt: string;
+  ingestionSummary?: {
+    filesUpdated: number;
+    chunksUpserted: number;
+    errorCount: number;
+    ingestedAt: string;
+  } | null;
 }
 
 interface MetadataStore {

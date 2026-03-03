@@ -36,6 +36,11 @@ interface Settings {
   apiKey: string;
   adminToken: string;
   customSystemPrompt: string;
+  converterEngineDefault: 'node-native' | 'convert-wasm';
+  converterEngineText: 'node-native' | 'convert-wasm';
+  converterEngineHtml: 'node-native' | 'convert-wasm';
+  converterEngineDocx: 'node-native' | 'convert-wasm';
+  converterEnginePdf: 'node-native' | 'convert-wasm';
   // Discord Bot
   discordBotEnabled: boolean;
   discordBotToken: string;
@@ -156,6 +161,11 @@ CUSTOM_SYSTEM_PROMPT=${env.CUSTOM_SYSTEM_PROMPT || ''}
 OCR_FALLBACK_ENABLED=${env.OCR_FALLBACK_ENABLED || 'false'}
 OCR_MAX_PAGES=${env.OCR_MAX_PAGES || '3'}
 OCR_COMMAND_TIMEOUT_MS=${env.OCR_COMMAND_TIMEOUT_MS || '20000'}
+CONVERTER_ENGINE_DEFAULT=${env.CONVERTER_ENGINE_DEFAULT || 'node-native'}
+CONVERTER_ENGINE_TEXT=${env.CONVERTER_ENGINE_TEXT || 'node-native'}
+CONVERTER_ENGINE_HTML=${env.CONVERTER_ENGINE_HTML || 'node-native'}
+CONVERTER_ENGINE_DOCX=${env.CONVERTER_ENGINE_DOCX || 'node-native'}
+CONVERTER_ENGINE_PDF=${env.CONVERTER_ENGINE_PDF || 'node-native'}
 
 # ===================
 # Discord Bot
@@ -263,6 +273,11 @@ router.get('/', requireConfiguredAuth, async (_req: Request, res: Response) => {
       apiKey: env.API_KEY ? '••••••••' + env.API_KEY.slice(-4) : '',
       adminToken: env.ADMIN_TOKEN ? '••••••••' + env.ADMIN_TOKEN.slice(-4) : '',
       customSystemPrompt: env.CUSTOM_SYSTEM_PROMPT || '',
+      converterEngineDefault: (env.CONVERTER_ENGINE_DEFAULT as any) || 'node-native',
+      converterEngineText: (env.CONVERTER_ENGINE_TEXT as any) || 'node-native',
+      converterEngineHtml: (env.CONVERTER_ENGINE_HTML as any) || 'node-native',
+      converterEngineDocx: (env.CONVERTER_ENGINE_DOCX as any) || 'node-native',
+      converterEnginePdf: (env.CONVERTER_ENGINE_PDF as any) || 'node-native',
       // Discord Bot
       discordBotEnabled: env.DISCORD_BOT_ENABLED === 'true',
       discordBotToken: env.DISCORD_BOT_TOKEN ? '••••••••' + env.DISCORD_BOT_TOKEN.slice(-4) : '',
@@ -328,6 +343,11 @@ router.put('/', requireConfiguredAuth, async (req: Request, res: Response) => {
       apiKey: 'API_KEY',
       adminToken: 'ADMIN_TOKEN',
       customSystemPrompt: 'CUSTOM_SYSTEM_PROMPT',
+      converterEngineDefault: 'CONVERTER_ENGINE_DEFAULT',
+      converterEngineText: 'CONVERTER_ENGINE_TEXT',
+      converterEngineHtml: 'CONVERTER_ENGINE_HTML',
+      converterEngineDocx: 'CONVERTER_ENGINE_DOCX',
+      converterEnginePdf: 'CONVERTER_ENGINE_PDF',
       // Discord Bot
       discordBotEnabled: 'DISCORD_BOT_ENABLED',
       discordBotToken: 'DISCORD_BOT_TOKEN',

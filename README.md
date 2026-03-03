@@ -143,6 +143,13 @@ ADMIN_TOKEN=your-admin-token
 OCR_FALLBACK_ENABLED=false
 OCR_MAX_PAGES=3
 OCR_COMMAND_TIMEOUT_MS=20000
+
+# Converter engine routing (phase 3)
+CONVERTER_ENGINE_DEFAULT=node-native
+CONVERTER_ENGINE_TEXT=node-native
+CONVERTER_ENGINE_HTML=node-native
+CONVERTER_ENGINE_DOCX=node-native
+CONVERTER_ENGINE_PDF=node-native
 ```
 
 Important: API secrets are write-only in the UI after setup. Save your `API_KEY` and `ADMIN_TOKEN` securely when generated.
@@ -168,6 +175,8 @@ OCR fallback requires `pdftoppm` and `tesseract` binaries on the host/container.
 4. **Convert on Upload**: In Documents, enable "Convert on upload" to run backend conversion before storing files (single-file uploads)
 
 You can also open per-file conversion reports from the Documents list.
+When conversion fails, raw uploads are retained for retry in the Documents "Conversion Failures" panel.
+ZIP uploads support bulk conversion with a per-file status table.
 
 ### Indexing
 
