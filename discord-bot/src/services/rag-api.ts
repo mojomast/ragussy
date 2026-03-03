@@ -45,7 +45,11 @@ export interface UploadDocumentResponse {
   success: boolean;
   filesAdded: number;
   files: string[];
+  skippedFiles?: string[];
+  renamedFiles?: Array<{ from: string; to: string }>;
 }
+
+export type ConflictStrategy = 'replace' | 'rename' | 'skip';
 
 export interface IngestDocumentsResponse {
   success: boolean;
@@ -130,12 +134,17 @@ export class RagApiClient {
     return await response.json() as HealthResponse;
   }
 
-  async uploadDocument(fileName: string, markdown: string): Promise<UploadDocumentResponse> {
+  async uploadDocument(
+    fileName: string,
+    markdown: string,
+    conflictStrategy: ConflictStrategy = 'replace'
+  ): Promise<UploadDocumentResponse> {
     const url = `${this.baseUrl}/documents/upload`;
 
     const formData = new FormData();
     const blob = new Blob([markdown], { type: 'text/markdown; charset=utf-8' });
     formData.append('file', blob, fileName);
+    formData.append('conflictStrategy', conflictStrategy);
 
     const response = await fetch(url, {
       method: 'POST',

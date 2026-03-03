@@ -276,8 +276,9 @@ docker compose --profile with-discord up -d
 | `/ask <question>` | Ask a question about the docs |
 | `/status` | Check bot health |
 | `/help` | Show help |
-| `/adddoc <file>` | Upload and convert a document into the knowledge base |
-| `/convertdoc <file> <instructions>` | Upload a document and apply instruction-driven conversion before ingest |
+| `/adddoc <file>` | Upload and convert a document into the knowledge base (`if_exists`: replace/rename/skip) |
+| `/convertdoc <file> <instructions>` | Upload a document and apply instruction-driven conversion before ingest (`if_exists`: replace/rename/skip) |
+| `/docpreview <file>` | Preview converted markdown (with optional instructions) without upload/ingest |
 | `!docs <question>` | Message command (customizable prefix) |
 
 See [discord-bot/README.md](discord-bot/README.md) for full documentation.

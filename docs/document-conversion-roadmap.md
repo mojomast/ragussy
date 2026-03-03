@@ -4,14 +4,31 @@ This roadmap starts with Discord ingestion workflows and then expands to the web
 
 ## Current State (implemented)
 
-- Discord bot now supports `/adddoc` to upload a file, convert to markdown, store in `DOCS_PATH`, and optionally trigger selective ingestion.
+- Discord bot supports `/adddoc` to upload a file, convert to markdown, store in docs, and optionally trigger selective ingestion.
+- Discord bot supports `/convertdoc` for instruction-driven conversion before upload/optional ingest.
 - Supported inputs in bot conversion path:
   - Markdown (`.md`, `.mdx`, `.markdown`)
   - Plain text-ish files (`.txt`, `.log`, `.csv`, `.tsv`, `.json`, `.xml`, `.yaml`, `.yml`, `.rst`, `.adoc`)
   - HTML (`.html`, `.htm`)
   - DOCX (`.docx`)
   - PDF (`.pdf`, text extraction)
-- `/adddoc` is limited to users with `Manage Server` permissions.
+- `/adddoc` and `/convertdoc` are restricted to `Manage Server` and disabled in DMs.
+- Intent parser is in place for `/convertdoc` with deterministic rules and LLM fallback.
+- Conversion post-processing is implemented:
+  - summarize
+  - extract sections
+  - clean markdown
+  - strip boilerplate
+  - preserve/remove links
+  - preserve/remove tables
+- Conversion hardening is in place:
+  - attachment download timeout
+  - upload size checks before and after download
+  - executable/binary blocklist
+  - MIME/extension mismatch checks
+- Duplicate handling strategy is implemented in upload workflows (`replace`, `rename`, `skip`).
+- `/docpreview` is implemented to inspect converted markdown before upload/ingest.
+- Basic tests exist for parser/converter/command happy paths.
 
 ## Why `convert` is a Phase-2 integration
 
@@ -24,12 +41,16 @@ For Ragussy backend/bot use, this means we should first ship practical Node-nati
 
 ## Phase 1: Hardening Discord ingestion
 
-1. Add conversion telemetry to bot logs (source format, conversion duration, warning counts).
-2. Add duplicate handling strategy (`replace`, `rename`, `skip`) exposed as command options.
-3. Add post-upload preview command (`/docpreview`) to inspect extracted markdown before ingest.
-4. Add OCR fallback for scanned PDFs.
+Status: **mostly complete**
+
+1. ✅ Add conversion telemetry to bot logs (source format, conversion duration, warning counts).
+2. ✅ Add duplicate handling strategy (`replace`, `rename`, `skip`) exposed as command options.
+3. ✅ Add post-upload preview command (`/docpreview`) to inspect extracted markdown before ingest.
+4. ⏳ Add OCR fallback for scanned PDFs.
 
 ## Phase 2: Shared conversion service in backend
+
+Status: **not started**
 
 1. Move conversion logic from bot into a backend service module (`src/services/document-conversion.ts`).
 2. Add endpoint:
@@ -39,6 +60,8 @@ For Ragussy backend/bot use, this means we should first ship practical Node-nati
 
 ## Phase 3: Integrate `convert` as an optional engine
 
+Status: **not started**
+
 1. Add converter-engine abstraction:
    - `node-native` (default)
    - `convert-wasm` (opt-in)
@@ -47,6 +70,8 @@ For Ragussy backend/bot use, this means we should first ship practical Node-nati
 4. Add conversion compatibility matrix in docs and settings UI.
 
 ## Phase 4: Web frontend rollout
+
+Status: **not started**
 
 1. Add "Convert on upload" toggle to Documents page.
 2. Add supported-format badges and max-size hints in uploader UX.
@@ -60,10 +85,21 @@ For Ragussy backend/bot use, this means we should first ship practical Node-nati
 
 ## Phase 5: Reliability and quality
 
-1. Snapshot tests for deterministic conversion output (docx/html/pdf fixtures).
-2. Queue-based background ingestion for larger files.
-3. Metrics dashboard for conversion success/failure rates and latency by format.
-4. Security pass:
-   - file-type sniffing
-   - zip bomb protection
-   - stricter upload auth for write routes.
+Status: **partially started**
+
+1. ⏳ Snapshot tests for deterministic conversion output (docx/html/pdf fixtures).
+2. ⏳ Queue-based background ingestion for larger files.
+3. ⏳ Metrics dashboard for conversion success/failure rates and latency by format.
+4. 🔄 Security pass:
+   - ✅ stricter write-path auth in bot command workflows
+   - ✅ file-type and MIME sanity checks in bot converter path
+   - ⏳ zip bomb protection in backend upload pipeline
+   - ⏳ stricter auth coverage for backend write routes (`/api/documents`, `/api/vectors`, `/api/settings`)
+
+## Recommended Next Slice
+
+To maximize impact quickly, the next implementation slice should be:
+
+1. Phase 2 items 1-3 (shared backend conversion service + `convert-upload` endpoint + bot delegation).
+2. Phase 1 item 4 (OCR fallback for scanned PDFs).
+3. Phase 5 security remaining items (backend route auth coverage + zip upload hardening).

@@ -7,36 +7,34 @@ process.env.RAG_API_KEY ??= 'test-api-key';
 process.env.RAG_API_URL ??= 'http://localhost:3001/api';
 process.env.MAX_DOC_UPLOAD_MB ??= '15';
 
-const commandModulePromise = import('./convert-document.js');
+const commandModulePromise = import('./add-document.js');
 const servicesModulePromise = import('../services/index.js');
 
-test('/convertdoc happy path uploads and ingests document', async () => {
-  const { convertDocumentCommand } = await commandModulePromise;
+test('/adddoc skip strategy avoids ingest when file exists', async () => {
+  const { addDocumentCommand } = await commandModulePromise;
   const { ragApi } = await servicesModulePromise;
 
   const originalFetch = globalThis.fetch;
   const originalUpload = ragApi.uploadDocument;
   const originalIngest = ragApi.ingestDocuments;
-  const originalSummarize = ragApi.summarizeMarkdown;
 
-  let uploadCalled = false;
   let uploadStrategy: string | undefined;
   let ingestCalled = false;
 
   globalThis.fetch = async () => {
-    return new Response('# Title\n\nHello world', {
+    return new Response('# Existing\n\nSame doc', {
       status: 200,
       headers: { 'content-type': 'text/markdown' },
     });
   };
 
   ragApi.uploadDocument = async (_fileName: string, _markdown: string, strategy) => {
-    uploadCalled = true;
     uploadStrategy = strategy;
     return {
       success: true,
-      filesAdded: 1,
-      files: ['notes.md'],
+      filesAdded: 0,
+      files: [],
+      skippedFiles: ['existing.md'],
     };
   };
 
@@ -45,17 +43,15 @@ test('/convertdoc happy path uploads and ingests document', async () => {
     return {
       success: true,
       result: {
-        filesScanned: 1,
-        filesUpdated: 1,
+        filesScanned: 0,
+        filesUpdated: 0,
         filesDeleted: 0,
-        chunksUpserted: 2,
+        chunksUpserted: 0,
         chunksDeleted: 0,
         errors: [],
       },
     };
   };
-
-  ragApi.summarizeMarkdown = async () => '# Summary\n\nsummary';
 
   const edits: Array<{ embeds?: Array<{ data?: { title?: string } }> }> = [];
   const interaction = {
@@ -67,20 +63,18 @@ test('/convertdoc happy path uploads and ingests document', async () => {
     channelId: 'channel-1',
     options: {
       getAttachment: () => ({
-        url: 'https://example.com/uploaded.md',
-        name: 'uploaded.md',
+        url: 'https://example.com/existing.md',
+        name: 'existing.md',
         size: 1024,
         contentType: 'text/markdown',
       }),
-      getString: (name: string) => {
-        if (name === 'instructions') return 'clean markdown';
-        if (name === 'target_name') return null;
-        if (name === 'if_exists') return 'rename';
-        return null;
-      },
       getBoolean: (name: string) => {
         if (name === 'ingest_now') return true;
         if (name === 'private') return true;
+        return null;
+      },
+      getString: (name: string) => {
+        if (name === 'if_exists') return 'skip';
         return null;
       },
     },
@@ -92,17 +86,14 @@ test('/convertdoc happy path uploads and ingests document', async () => {
   };
 
   try {
-    await convertDocumentCommand.execute(interaction as never);
+    await addDocumentCommand.execute(interaction as never);
 
-    assert.equal(uploadCalled, true);
-    assert.equal(uploadStrategy, 'rename');
-    assert.equal(ingestCalled, true);
-    assert.equal(edits.length, 1);
-    assert.equal(edits[0].embeds?.[0]?.data?.title, '✅ Document converted and uploaded');
+    assert.equal(uploadStrategy, 'skip');
+    assert.equal(ingestCalled, false);
+    assert.equal(edits[0].embeds?.[0]?.data?.title, '✅ Document added to knowledge base');
   } finally {
     globalThis.fetch = originalFetch;
     ragApi.uploadDocument = originalUpload;
     ragApi.ingestDocuments = originalIngest;
-    ragApi.summarizeMarkdown = originalSummarize;
   }
 });

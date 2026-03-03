@@ -5,7 +5,7 @@ import {
   PermissionFlagsBits,
 } from 'discord.js';
 import { env, logger } from '../config/index.js';
-import { ragApi, convertDocument } from '../services/index.js';
+import { ragApi, convertDocument, type ConflictStrategy } from '../services/index.js';
 
 export const addDocumentCommand = {
   data: new SlashCommandBuilder()
@@ -30,12 +30,25 @@ export const addDocumentCommand = {
         .setName('private')
         .setDescription('Only you can see the response')
         .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('if_exists')
+        .setDescription('What to do if a file with the same name already exists')
+        .addChoices(
+          { name: 'Replace existing', value: 'replace' },
+          { name: 'Rename new file', value: 'rename' },
+          { name: 'Skip upload', value: 'skip' }
+        )
+        .setRequired(false)
     ),
 
   async execute(interaction: ChatInputCommandInteraction): Promise<void> {
     const attachment = interaction.options.getAttachment('file', true);
     const ingestNow = interaction.options.getBoolean('ingest_now') ?? true;
     const isPrivate = interaction.options.getBoolean('private') ?? true;
+    const conflictStrategy =
+      (interaction.options.getString('if_exists') as ConflictStrategy | null) ?? 'replace';
 
     if (
       interaction.guildId &&
@@ -66,6 +79,7 @@ export const addDocumentCommand = {
           fileSize: attachment.size,
           mimeType: attachment.contentType,
           ingestNow,
+          conflictStrategy,
           userId: interaction.user.id,
           channelId: interaction.channelId,
         },
@@ -82,11 +96,18 @@ export const addDocumentCommand = {
         bytes,
       });
 
-      await ragApi.uploadDocument(converted.fileName, converted.markdown);
+      const uploadResult = await ragApi.uploadDocument(
+        converted.fileName,
+        converted.markdown,
+        conflictStrategy
+      );
+      const storedFileName = uploadResult.files[0] ?? converted.fileName;
 
       let ingestDetails: string;
-      if (ingestNow) {
-        const ingestResponse = await ragApi.ingestDocuments([converted.fileName]);
+      if (uploadResult.filesAdded === 0) {
+        ingestDetails = 'Upload skipped (file already exists)';
+      } else if (ingestNow) {
+        const ingestResponse = await ragApi.ingestDocuments(uploadResult.files);
         const chunks = ingestResponse.result?.chunksUpserted ?? 0;
         const errors = ingestResponse.result?.errors ?? [];
         ingestDetails = errors.length > 0
@@ -101,12 +122,22 @@ export const addDocumentCommand = {
         .setTitle('✅ Document added to knowledge base')
         .addFields(
           { name: 'Original File', value: attachment.name, inline: false },
-          { name: 'Stored As', value: converted.fileName, inline: false },
+          { name: 'Stored As', value: storedFileName, inline: false },
           { name: 'Converted From', value: converted.sourceFormat.toUpperCase(), inline: true },
+          { name: 'If Exists', value: conflictStrategy, inline: true },
           { name: 'Ingestion', value: ingestDetails, inline: true }
         )
         .setFooter({ text: env.BOT_NAME })
         .setTimestamp();
+
+      if (uploadResult.renamedFiles && uploadResult.renamedFiles.length > 0) {
+        const renamed = uploadResult.renamedFiles[0];
+        embed.addFields({
+          name: 'Renamed',
+          value: `- ${renamed.from} -> ${renamed.to}`,
+          inline: false,
+        });
+      }
 
       if (converted.warnings.length > 0) {
         embed.addFields({

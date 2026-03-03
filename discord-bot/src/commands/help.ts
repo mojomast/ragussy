@@ -45,6 +45,11 @@ export const helpCommand = {
           inline: false,
         },
         {
+          name: '📝 `/docpreview <file>`',
+          value: 'Preview the converted markdown first (including optional instructions) without uploading or ingesting.',
+          inline: false,
+        },
+        {
           name: `⚡ \`${env.BOT_COMMAND_PREFIX} <question>\``,
           value: 'Quick way to ask without using slash commands.',
           inline: false,

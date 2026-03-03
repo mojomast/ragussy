@@ -9,6 +9,7 @@ export {
   type MoreImagesResponse,
   type UploadDocumentResponse,
   type IngestDocumentsResponse,
+  type ConflictStrategy,
 } from './rag-api.js';
 
 export {

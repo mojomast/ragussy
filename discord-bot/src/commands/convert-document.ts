@@ -11,6 +11,7 @@ import {
   parseConversionInstructions,
   IntentClarificationError,
   type ConversionIntent,
+  type ConflictStrategy,
 } from '../services/index.js';
 
 export const convertDocumentCommand = {
@@ -50,6 +51,17 @@ export const convertDocumentCommand = {
         .setDescription('Optional output file name')
         .setRequired(false)
         .setMaxLength(120)
+    )
+    .addStringOption(option =>
+      option
+        .setName('if_exists')
+        .setDescription('What to do if a file with the same name already exists')
+        .addChoices(
+          { name: 'Replace existing', value: 'replace' },
+          { name: 'Rename new file', value: 'rename' },
+          { name: 'Skip upload', value: 'skip' }
+        )
+        .setRequired(false)
     ),
 
   async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -58,6 +70,8 @@ export const convertDocumentCommand = {
     const ingestNowOption = interaction.options.getBoolean('ingest_now');
     const isPrivate = interaction.options.getBoolean('private') ?? true;
     const targetName = interaction.options.getString('target_name') ?? undefined;
+    const conflictStrategy =
+      (interaction.options.getString('if_exists') as ConflictStrategy | null) ?? 'replace';
 
     if (
       interaction.guildId &&
@@ -119,13 +133,20 @@ export const convertDocumentCommand = {
       );
 
       const conversionMs = Date.now() - conversionStart;
-      await ragApi.uploadDocument(converted.fileName, converted.markdown);
+      const uploadResult = await ragApi.uploadDocument(
+        converted.fileName,
+        converted.markdown,
+        conflictStrategy
+      );
+      const storedFileName = uploadResult.files[0] ?? converted.fileName;
 
       const shouldIngest = parsed.intent.ingestNow ?? true;
 
       let ingestDetails: string;
-      if (shouldIngest) {
-        const ingestResponse = await ragApi.ingestDocuments([converted.fileName]);
+      if (uploadResult.filesAdded === 0) {
+        ingestDetails = 'Upload skipped (file already exists)';
+      } else if (shouldIngest) {
+        const ingestResponse = await ragApi.ingestDocuments(uploadResult.files);
         const chunks = ingestResponse.result?.chunksUpserted ?? 0;
         const errors = ingestResponse.result?.errors ?? [];
         ingestDetails = errors.length > 0
@@ -155,8 +176,9 @@ export const convertDocumentCommand = {
         .setTitle('✅ Document converted and uploaded')
         .addFields(
           { name: 'Original File', value: attachment.name, inline: false },
-          { name: 'Stored As', value: converted.fileName, inline: false },
+          { name: 'Stored As', value: storedFileName, inline: false },
           { name: 'Parse Method', value: parsed.parseMethod, inline: true },
+          { name: 'If Exists', value: conflictStrategy, inline: true },
           { name: 'Ingestion', value: ingestDetails, inline: true },
           {
             name: 'Parsed Intent',
@@ -176,6 +198,15 @@ export const convertDocumentCommand = {
         embed.addFields({
           name: 'Skipped / Unsupported Instructions',
           value: converted.ignoredInstructions.slice(0, 5).map(note => `- ${note}`).join('\n'),
+          inline: false,
+        });
+      }
+
+      if (uploadResult.renamedFiles && uploadResult.renamedFiles.length > 0) {
+        const renamed = uploadResult.renamedFiles[0];
+        embed.addFields({
+          name: 'Renamed',
+          value: `- ${renamed.from} -> ${renamed.to}`,
           inline: false,
         });
       }

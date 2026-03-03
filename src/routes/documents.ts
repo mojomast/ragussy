@@ -7,6 +7,7 @@ import { logger, getDocsPath, getDocsExtensions, getRuntimeSecurityConfig } from
 import { ingestIncremental, ingestFull, ingestFullPartial, ingestSelected, getAllFileStates } from '../ingestion/index.js';
 
 const router: Router = Router();
+type ConflictStrategy = 'replace' | 'rename' | 'skip';
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -98,6 +99,92 @@ async function listDocsRecursive(dir: string, baseDir: string): Promise<any[]> {
   return files;
 }
 
+function parseConflictStrategy(value: unknown): ConflictStrategy {
+  if (value === 'rename' || value === 'skip') {
+    return value;
+  }
+  return 'replace';
+}
+
+function sanitizeRelativeUploadPath(rawPath: string): string {
+  const normalized = rawPath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const parts = normalized.split('/').filter(Boolean);
+
+  if (parts.length === 0) {
+    throw new Error('Invalid upload path');
+  }
+
+  if (parts.some(part => part === '.' || part === '..')) {
+    throw new Error('Invalid upload path traversal');
+  }
+
+  return parts.join('/');
+}
+
+function resolveInsideDocs(docsPath: string, relativePath: string): string {
+  const docsRoot = path.resolve(docsPath);
+  const absolutePath = path.resolve(docsRoot, relativePath);
+
+  if (absolutePath !== docsRoot && !absolutePath.startsWith(`${docsRoot}${path.sep}`)) {
+    throw new Error('Upload path escapes docs directory');
+  }
+
+  return absolutePath;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function addNumericSuffix(relativePath: string, index: number): string {
+  const ext = path.extname(relativePath);
+  const dir = path.posix.dirname(relativePath);
+  const base = path.basename(relativePath, ext);
+  const candidate = `${base}-${index}${ext}`;
+  return dir === '.' ? candidate : `${dir}/${candidate}`;
+}
+
+async function resolveConflictPath(
+  docsPath: string,
+  requestedRelativePath: string,
+  strategy: ConflictStrategy
+): Promise<
+  | { action: 'skip'; relativePath: string }
+  | { action: 'write'; relativePath: string; absolutePath: string; renamedFrom?: string }
+> {
+  const sanitized = sanitizeRelativeUploadPath(requestedRelativePath);
+  const absolutePath = resolveInsideDocs(docsPath, sanitized);
+  const exists = await fileExists(absolutePath);
+
+  if (!exists || strategy === 'replace') {
+    return { action: 'write', relativePath: sanitized, absolutePath };
+  }
+
+  if (strategy === 'skip') {
+    return { action: 'skip', relativePath: sanitized };
+  }
+
+  for (let i = 1; i <= 10000; i += 1) {
+    const renamed = addNumericSuffix(sanitized, i);
+    const renamedAbsolutePath = resolveInsideDocs(docsPath, renamed);
+    if (!(await fileExists(renamedAbsolutePath))) {
+      return {
+        action: 'write',
+        relativePath: renamed,
+        absolutePath: renamedAbsolutePath,
+        renamedFrom: sanitized,
+      };
+    }
+  }
+
+  throw new Error('Could not resolve a unique file name for upload');
+}
+
 // Get document content
 router.get('/content/*', async (req: Request, res: Response) => {
   try {
@@ -120,57 +207,94 @@ router.get('/content/*', async (req: Request, res: Response) => {
 
 // Upload documents (single file or zip)
 router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+  let uploadedPath = '';
+
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
-    
+
     const docsPath = getDocsPath();
-    const uploadedPath = req.file.path;
+    uploadedPath = req.file.path;
     const ext = path.extname(req.file.originalname).toLowerCase();
-    
+    const conflictStrategy = parseConflictStrategy(req.body?.conflictStrategy);
+
     let addedFiles: string[] = [];
-    
+    let skippedFiles: string[] = [];
+    let renamedFiles: Array<{ from: string; to: string }> = [];
+
     if (ext === '.zip') {
       // Extract zip file
       const zip = new AdmZip(uploadedPath);
       const entries = zip.getEntries();
-      
+
       for (const entry of entries) {
         if (entry.isDirectory) continue;
-        
+
         const entryName = entry.entryName;
-        
+
         // Skip hidden files and __MACOSX
         if (entryName.includes('__MACOSX') || entryName.split('/').some(p => p.startsWith('.'))) {
           continue;
         }
-        
-        const targetPath = path.join(docsPath, entryName);
-        await fs.mkdir(path.dirname(targetPath), { recursive: true });
-        await fs.writeFile(targetPath, entry.getData());
-        addedFiles.push(entryName);
+
+        const resolved = await resolveConflictPath(docsPath, entryName, conflictStrategy);
+        if (resolved.action === 'skip') {
+          skippedFiles.push(resolved.relativePath);
+          continue;
+        }
+
+        await fs.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
+        await fs.writeFile(resolved.absolutePath, entry.getData());
+        addedFiles.push(resolved.relativePath);
+
+        if (resolved.renamedFrom) {
+          renamedFiles.push({ from: resolved.renamedFrom, to: resolved.relativePath });
+        }
       }
-      
-      // Clean up uploaded zip
-      await fs.unlink(uploadedPath);
     } else {
       // Single file - copy instead of rename to handle cross-filesystem moves in Docker
-      const targetPath = path.join(docsPath, req.file.originalname);
-      await fs.copyFile(uploadedPath, targetPath);
-      await fs.unlink(uploadedPath); // Clean up the uploaded file
-      addedFiles.push(req.file.originalname);
+      const requestedName = path.basename(req.file.originalname);
+      const resolved = await resolveConflictPath(docsPath, requestedName, conflictStrategy);
+
+      if (resolved.action === 'skip') {
+        skippedFiles.push(resolved.relativePath);
+      } else {
+        await fs.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
+        await fs.copyFile(uploadedPath, resolved.absolutePath);
+        addedFiles.push(resolved.relativePath);
+
+        if (resolved.renamedFrom) {
+          renamedFiles.push({ from: resolved.renamedFrom, to: resolved.relativePath });
+        }
+      }
     }
-    
-    logger.info({ files: addedFiles.length }, 'Documents uploaded');
+
+    logger.info(
+      {
+        filesAdded: addedFiles.length,
+        skipped: skippedFiles.length,
+        renamed: renamedFiles.length,
+        conflictStrategy,
+      },
+      'Documents uploaded'
+    );
+
     return res.json({ 
-      success: true, 
+      success: true,
+      conflictStrategy,
       filesAdded: addedFiles.length,
-      files: addedFiles 
+      files: addedFiles,
+      skippedFiles,
+      renamedFiles,
     });
   } catch (error) {
     logger.error({ error }, 'Failed to upload documents');
     return res.status(500).json({ error: 'Failed to upload documents' });
+  } finally {
+    if (uploadedPath) {
+      await fs.unlink(uploadedPath).catch(() => undefined);
+    }
   }
 });
 

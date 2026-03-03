@@ -92,8 +92,9 @@ docker compose --profile with-discord up -d
 | `/ask <question>` | Ask a question about the docs |
 | `/status` | Check bot health |
 | `/help` | Show help |
-| `/adddoc <file>` | Convert + upload a document (`.md`, `.txt`, `.html`, `.docx`, `.pdf`) *(Manage Server required)* |
-| `/convertdoc <file> <instructions>` | Convert using instructions (for example summarize in bullets, strip boilerplate, skip ingest) *(Manage Server required)* |
+| `/adddoc <file>` | Convert + upload a document (`.md`, `.txt`, `.html`, `.docx`, `.pdf`) with duplicate handling (`if_exists`) *(Manage Server required)* |
+| `/convertdoc <file> <instructions>` | Convert using instructions with duplicate handling (`if_exists`) before optional ingest *(Manage Server required)* |
+| `/docpreview <file>` | Convert and preview markdown output (optionally with instructions) without upload/ingest *(Manage Server required)* |
 | `!docs <question>` | Message command alternative |
 
 ## Environment Variables
@@ -119,6 +120,9 @@ docker compose --profile with-discord up -d
 - `/convertdoc file:<attachment> instructions:"summarize in bullets, keep tables"`
 - `/convertdoc file:<attachment> instructions:"extract sections: Architecture, API" ingest_now:false`
 - `/convertdoc file:<attachment> instructions:"clean markdown, remove boilerplate" target_name:"team-notes.md"`
+- `/convertdoc file:<attachment> instructions:"clean markdown" if_exists:rename`
+- `/adddoc file:<attachment> if_exists:skip`
+- `/docpreview file:<attachment> instructions:"summarize in bullets"`
 
 ## License
 

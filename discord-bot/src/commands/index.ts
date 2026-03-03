@@ -5,6 +5,7 @@ import { helpCommand } from './help.js';
 import { imagesCommand } from './images.js';
 import { addDocumentCommand } from './add-document.js';
 import { convertDocumentCommand } from './convert-document.js';
+import { docPreviewCommand } from './doc-preview.js';
 
 export interface Command {
   data: SlashCommandOptionsOnlyBuilder;
@@ -19,6 +20,7 @@ commands.set(helpCommand.data.name, helpCommand);
 commands.set(imagesCommand.data.name, imagesCommand);
 commands.set(addDocumentCommand.data.name, addDocumentCommand);
 commands.set(convertDocumentCommand.data.name, convertDocumentCommand);
+commands.set(docPreviewCommand.data.name, docPreviewCommand);
 
 export {
   askCommand,
@@ -27,4 +29,5 @@ export {
   imagesCommand,
   addDocumentCommand,
   convertDocumentCommand,
+  docPreviewCommand,
 };
