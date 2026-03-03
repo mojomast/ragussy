@@ -284,6 +284,8 @@ docker compose --profile with-discord up -d
 See [discord-bot/README.md](discord-bot/README.md) for full documentation.
 See [Document Conversion Roadmap](docs/document-conversion-roadmap.md) for phased backend/frontend rollout.
 
+Note: document conversion now runs in the backend via `POST /api/documents/convert-upload`, with metadata persisted to `data/conversion-metadata.json`.
+
 ## Project Structure
 
 ```

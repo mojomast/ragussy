@@ -1,11 +1,18 @@
 import { Router, Request, Response } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
 import { logger, getDocsPath, getDocsExtensions, getRuntimeSecurityConfig } from '../config/index.js';
 import { ingestIncremental, ingestFull, ingestFullPartial, ingestSelected, getAllFileStates } from '../ingestion/index.js';
-import { convertDocumentWithIntent, normalizeIntent, type ConversionIntent } from '../services/index.js';
+import {
+  convertDocumentWithIntent,
+  getConversionMetadata,
+  normalizeIntent,
+  upsertConversionMetadata,
+  type ConversionIntent,
+} from '../services/index.js';
 
 const router: Router = Router();
 type ConflictStrategy = 'replace' | 'rename' | 'skip';
@@ -239,6 +246,23 @@ router.get('/content/*', async (req: Request, res: Response) => {
   }
 });
 
+// Get conversion metadata for a document
+router.get('/conversion-metadata/*', async (req: Request, res: Response) => {
+  try {
+    const relativePath = sanitizeRelativeUploadPath(req.params[0]);
+    const metadata = await getConversionMetadata(relativePath);
+
+    if (!metadata) {
+      return res.status(404).json({ error: 'No conversion metadata found' });
+    }
+
+    return res.json({ metadata });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get conversion metadata');
+    return res.status(500).json({ error: 'Failed to get conversion metadata' });
+  }
+});
+
 // Upload documents (single file or zip)
 router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
   let uploadedPath = '';
@@ -375,6 +399,22 @@ router.post('/convert-upload', upload.single('file'), async (req: Request, res: 
       await fs.mkdir(path.dirname(resolved.absolutePath), { recursive: true });
       await fs.writeFile(resolved.absolutePath, converted.markdown, 'utf-8');
       writtenFiles.push(resolved.relativePath);
+
+      await upsertConversionMetadata({
+        filePath: resolved.relativePath,
+        originalFileName: req.file.originalname,
+        sourceMimeType: req.file.mimetype || 'application/octet-stream',
+        sourceFormat: converted.sourceFormat,
+        converter: 'node-native',
+        warnings: converted.warnings,
+        ignoredInstructions: converted.ignoredInstructions,
+        appliedActions: converted.appliedActions,
+        checksumSha256: crypto
+          .createHash('sha256')
+          .update(converted.markdown, 'utf-8')
+          .digest('hex'),
+        convertedAt: new Date().toISOString(),
+      });
 
       if (resolved.renamedFrom) {
         renamedFiles.push({ from: resolved.renamedFrom, to: resolved.relativePath });

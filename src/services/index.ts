@@ -25,3 +25,9 @@ export {
   type ConversionIntent,
   type SummaryStyle,
 } from './document-conversion-intent.js';
+
+export {
+  upsertConversionMetadata,
+  getConversionMetadata,
+  type ConversionMetadataRecord,
+} from './conversion-metadata.js';
