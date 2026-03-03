@@ -1,33 +1,37 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { env, logger } from '../config/index.js';
+import { logger, getRuntimeSecurityConfig } from '../config/index.js';
 import { ingestIncremental, ingestFull } from '../ingestion/index.js';
 
 const router: Router = Router();
 
 // Admin authentication middleware
-function adminAuth(req: Request, res: Response, next: NextFunction) {
-  // Check if system is configured
-  if (!env.ADMIN_TOKEN) {
-    return res.status(503).json({ 
-      error: 'System not configured',
-      message: 'Please complete the initial setup first'
-    });
+async function adminAuth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const runtimeSecurity = await getRuntimeSecurityConfig();
+
+    if (!runtimeSecurity.adminToken) {
+      return res.status(503).json({
+        error: 'System not configured',
+        message: 'Please complete the initial setup first',
+      });
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Missing authorization header' });
+    }
+
+    const token = authHeader.substring(7);
+    if (token !== runtimeSecurity.adminToken) {
+      logger.warn({ ip: req.ip }, 'Invalid admin token attempt');
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+
+    next();
+  } catch (error) {
+    logger.error({ error }, 'Admin auth failed');
+    return res.status(500).json({ error: 'Authentication failed' });
   }
-  
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Missing authorization header' });
-  }
-  
-  const token = authHeader.substring(7);
-  
-  if (token !== env.ADMIN_TOKEN) {
-    logger.warn({ ip: req.ip }, 'Invalid admin token attempt');
-    return res.status(403).json({ error: 'Invalid token' });
-  }
-  
-  next();
 }
 
 router.use(adminAuth);

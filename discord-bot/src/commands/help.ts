@@ -35,6 +35,16 @@ export const helpCommand = {
           inline: false,
         },
         {
+          name: '📥 `/adddoc <file>`',
+          value: 'Upload a file, convert it to markdown, and optionally ingest it right away (Manage Server required).',
+          inline: false,
+        },
+        {
+          name: '🧭 `/convertdoc <file> <instructions>`',
+          value: 'Upload a file and apply instruction-driven conversion (summarize, clean, extract sections) before optional ingest (Manage Server required).',
+          inline: false,
+        },
+        {
           name: `⚡ \`${env.BOT_COMMAND_PREFIX} <question>\``,
           value: 'Quick way to ask without using slash commands.',
           inline: false,

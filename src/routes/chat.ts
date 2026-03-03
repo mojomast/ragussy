@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { logger, env } from '../config/index.js';
+import { logger, env, getRuntimeSecurityConfig } from '../config/index.js';
 import { embedText, generateAnswer, searchVectors, type ChatMessage } from '../services/index.js';
 import { countTokens } from '../ingestion/chunker.js';
 
@@ -46,27 +46,32 @@ function stripImageUrls(content: string): string {
 }
 
 // API Key authentication middleware
-function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
-  // Check if system is configured
-  if (!env.API_KEY || !env.LLM_API_KEY || !env.EMBED_API_KEY) {
-    return res.status(503).json({ 
-      error: 'System not configured',
-      message: 'Please complete the initial setup first'
-    });
+async function apiKeyAuth(req: Request, res: Response, next: NextFunction) {
+  try {
+    const runtimeSecurity = await getRuntimeSecurityConfig();
+
+    if (!runtimeSecurity.apiKey || !runtimeSecurity.llmApiKey || !runtimeSecurity.embedApiKey) {
+      return res.status(503).json({
+        error: 'System not configured',
+        message: 'Please complete the initial setup first',
+      });
+    }
+
+    const apiKey = req.headers['x-api-key'] as string;
+    if (!apiKey) {
+      return res.status(401).json({ error: 'Missing API key' });
+    }
+
+    if (apiKey !== runtimeSecurity.apiKey) {
+      logger.warn({ ip: req.ip }, 'Invalid API key attempt');
+      return res.status(403).json({ error: 'Invalid API key' });
+    }
+
+    next();
+  } catch (error) {
+    logger.error({ error }, 'API key auth failed');
+    return res.status(500).json({ error: 'Authentication failed' });
   }
-  
-  const apiKey = req.headers['x-api-key'] as string;
-  
-  if (!apiKey) {
-    return res.status(401).json({ error: 'Missing API key' });
-  }
-  
-  if (apiKey !== env.API_KEY) {
-    logger.warn({ ip: req.ip }, 'Invalid API key attempt');
-    return res.status(403).json({ error: 'Invalid API key' });
-  }
-  
-  next();
 }
 
 router.use(apiKeyAuth);

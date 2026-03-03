@@ -8,6 +8,8 @@ A Discord bot that provides intelligent answers from your documentation using Ra
 - `/status` - Check bot and backend health
 - `/help` - Display help information
 - `!docs` - Message command (customizable prefix)
+- `/adddoc` - Upload files and convert them to markdown for ingestion
+- `/convertdoc` - Upload files with conversion instructions (summarize, clean, extract sections)
 - Rich embeds with source links
 - Per-channel conversation context
 - Configurable rate limiting
@@ -51,6 +53,8 @@ BOT_NAME=Docs Bot
 BOT_COMMAND_PREFIX=!docs
 BOT_EMBED_COLOR=0x7c3aed
 COOLDOWN_SECONDS=5
+MAX_DOC_UPLOAD_MB=15
+INSTRUCTION_PARSE_TIMEOUT_MS=8000
 LOG_LEVEL=info
 ```
 
@@ -87,6 +91,8 @@ docker compose --profile with-discord up -d
 | `/ask <question>` | Ask a question about the docs |
 | `/status` | Check bot health |
 | `/help` | Show help |
+| `/adddoc <file>` | Convert + upload a document (`.md`, `.txt`, `.html`, `.docx`, `.pdf`) *(Manage Server required)* |
+| `/convertdoc <file> <instructions>` | Convert using instructions (for example summarize in bullets, strip boilerplate, skip ingest) *(Manage Server required)* |
 | `!docs <question>` | Message command alternative |
 
 ## Environment Variables
@@ -102,7 +108,15 @@ docker compose --profile with-discord up -d
 | `BOT_COMMAND_PREFIX` | Message command prefix | `!docs` |
 | `BOT_EMBED_COLOR` | Embed color (hex) | `0x7c3aed` |
 | `COOLDOWN_SECONDS` | Rate limit cooldown | `5` |
+| `MAX_DOC_UPLOAD_MB` | Max upload size for `/adddoc` | `15` |
+| `INSTRUCTION_PARSE_TIMEOUT_MS` | Timeout for LLM fallback instruction parsing | `8000` |
 | `LOG_LEVEL` | Logging level | `info` |
+
+## Conversion Instruction Examples
+
+- `/convertdoc file:<attachment> instructions:"summarize in bullets, keep tables"`
+- `/convertdoc file:<attachment> instructions:"extract sections: Architecture, API" ingest_now:false`
+- `/convertdoc file:<attachment> instructions:"clean markdown, remove boilerplate" target_name:"team-notes.md"`
 
 ## License
 

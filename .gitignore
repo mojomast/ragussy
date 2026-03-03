@@ -35,3 +35,7 @@ coverage/
 uploads/
 
 docs/*.json
+
+# Keep screenshots versioned in git
+!docs/screenshots/
+!docs/screenshots/**

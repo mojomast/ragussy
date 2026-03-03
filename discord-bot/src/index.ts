@@ -236,7 +236,9 @@ client.on(Events.MessageCreate, async (message: Message) => {
   logger.info({ userId, channelId, questionLength: question.length }, `Processing ${env.BOT_COMMAND_PREFIX} message`);
 
   // Show typing indicator
-  await message.channel.sendTyping();
+  if ('sendTyping' in message.channel) {
+    await message.channel.sendTyping();
+  }
 
   try {
     const existingConversationId = channelConversations.get(channelId);

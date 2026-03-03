@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.*
+node_modules
+frontend/node_modules
+discord-bot/node_modules
+dist
+frontend/dist
+discord-bot/dist
+uploads
+data
+docs/screenshots
+*.log
+npm-debug.log*
+.DS_Store

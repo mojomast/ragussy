@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
-import { logger, getDocsPath, getDocsExtensions } from '../config/index.js';
+import { logger, getDocsPath, getDocsExtensions, getRuntimeSecurityConfig } from '../config/index.js';
 import { ingestIncremental, ingestFull, ingestFullPartial, ingestSelected, getAllFileStates } from '../ingestion/index.js';
 
 const router: Router = Router();
@@ -204,11 +204,11 @@ router.post('/ingest', async (req: Request, res: Response) => {
     logger.info({ body: req.body }, 'Ingest request received');
     
     // Check if embedding API is configured
-    const env = await import('../config/index.js');
-    if (!env.env.EMBED_API_KEY) {
+    const runtimeSecurity = await getRuntimeSecurityConfig();
+    if (!runtimeSecurity.embedApiKey) {
       return res.status(400).json({ 
         error: 'Embedding API not configured', 
-        message: 'Please configure your embedding API key in Settings and restart the server.' 
+        message: 'Please configure your embedding API key in Settings.' 
       });
     }
     

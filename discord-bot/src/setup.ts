@@ -74,6 +74,16 @@ async function setup() {
   const cooldown = await question(`Cooldown Seconds [${defaultCooldown}]: `);
   config.COOLDOWN_SECONDS = cooldown || defaultCooldown;
 
+  const defaultUploadSize = '15';
+  const uploadSize = await question(`Max upload size for /adddoc and /convertdoc in MB [${defaultUploadSize}]: `);
+  config.MAX_DOC_UPLOAD_MB = uploadSize || defaultUploadSize;
+
+  const defaultParseTimeoutMs = '8000';
+  const parseTimeoutMs = await question(
+    `Instruction parser LLM timeout in ms [${defaultParseTimeoutMs}]: `
+  );
+  config.INSTRUCTION_PARSE_TIMEOUT_MS = parseTimeoutMs || defaultParseTimeoutMs;
+
   config.LOG_LEVEL = 'info';
 
   // Write .env file
@@ -96,6 +106,10 @@ BOT_EMBED_COLOR=${config.BOT_EMBED_COLOR}
 
 # Rate Limiting
 COOLDOWN_SECONDS=${config.COOLDOWN_SECONDS}
+
+# Document uploads
+MAX_DOC_UPLOAD_MB=${config.MAX_DOC_UPLOAD_MB}
+INSTRUCTION_PARSE_TIMEOUT_MS=${config.INSTRUCTION_PARSE_TIMEOUT_MS}
 
 # Logging
 LOG_LEVEL=${config.LOG_LEVEL}

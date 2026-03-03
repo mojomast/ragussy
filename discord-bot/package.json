@@ -11,17 +11,23 @@
     "register": "tsx src/register-commands.ts",
     "setup": "tsx src/setup.ts",
     "lint": "eslint src --ext .ts",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "node --test --import tsx src/**/*.test.ts"
   },
   "dependencies": {
     "discord.js": "^14.16.0",
     "dotenv": "^16.4.7",
+    "mammoth": "^1.10.0",
+    "pdf-parse": "^1.1.1",
     "pino": "^9.5.0",
     "pino-pretty": "^13.0.0",
+    "turndown": "^7.2.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/turndown": "^5.0.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0"
   },

@@ -4,7 +4,15 @@ import { logger, env } from '../config/index.js';
 
 const router: Router = Router();
 
-router.get('/health', async (_req: Request, res: Response) => {
+router.get('/health/live', (_req: Request, res: Response) => {
+  return res.json({
+    status: 'alive',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
+});
+
+async function readinessHandler(_req: Request, res: Response) {
   try {
     const qdrantOk = await checkQdrantHealth();
     
@@ -28,7 +36,10 @@ router.get('/health', async (_req: Request, res: Response) => {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
-});
+}
+
+router.get('/health', readinessHandler);
+router.get('/health/ready', readinessHandler);
 
 router.get('/health/detailed', async (_req: Request, res: Response) => {
   try {

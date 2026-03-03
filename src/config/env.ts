@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
 import path from 'path';
-import fs from 'fs';
+import fs from 'fs/promises';
 
 // Load .env file
 dotenv.config();
@@ -76,6 +76,65 @@ function validateEnv(): Env {
 }
 
 export const env = validateEnv();
+
+interface RuntimeSecurityConfig {
+  apiKey: string;
+  adminToken: string;
+  llmApiKey: string;
+  embedApiKey: string;
+}
+
+let runtimeSecurityCache: RuntimeSecurityConfig | null = null;
+let runtimeSecurityCacheAt = 0;
+const RUNTIME_SECURITY_CACHE_MS = 5000;
+
+export async function getRuntimeSecurityConfig(): Promise<RuntimeSecurityConfig> {
+  const now = Date.now();
+  if (runtimeSecurityCache && now - runtimeSecurityCacheAt < RUNTIME_SECURITY_CACHE_MS) {
+    return runtimeSecurityCache;
+  }
+
+  const envPath = path.join(process.cwd(), '.env');
+  const fromProcess = {
+    apiKey: env.API_KEY,
+    adminToken: env.ADMIN_TOKEN,
+    llmApiKey: env.LLM_API_KEY,
+    embedApiKey: env.EMBED_API_KEY,
+  };
+
+  try {
+    const content = await fs.readFile(envPath, 'utf-8');
+    const parsed: Record<string, string> = {};
+
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue;
+      }
+
+      const sepIndex = trimmed.indexOf('=');
+      if (sepIndex <= 0) {
+        continue;
+      }
+
+      const key = trimmed.slice(0, sepIndex);
+      const value = trimmed.slice(sepIndex + 1);
+      parsed[key] = value;
+    }
+
+    runtimeSecurityCache = {
+      apiKey: parsed.API_KEY ?? fromProcess.apiKey,
+      adminToken: parsed.ADMIN_TOKEN ?? fromProcess.adminToken,
+      llmApiKey: parsed.LLM_API_KEY ?? fromProcess.llmApiKey,
+      embedApiKey: parsed.EMBED_API_KEY ?? fromProcess.embedApiKey,
+    };
+  } catch {
+    runtimeSecurityCache = fromProcess;
+  }
+
+  runtimeSecurityCacheAt = now;
+  return runtimeSecurityCache;
+}
 
 // Derived configuration
 export function getDocsExtensions(): string[] {

@@ -1,6 +1,36 @@
 # Ragussy Installation Script for Windows
 # Run: powershell -ExecutionPolicy Bypass -File install.ps1
 
+param(
+    [switch]$WithDiscord,
+    [switch]$SkipSetup,
+    [switch]$NonInteractive
+)
+
+function Ask-YesNo {
+    param(
+        [string]$Prompt,
+        [bool]$DefaultYes = $true
+    )
+
+    if ($NonInteractive) {
+        return $DefaultYes
+    }
+
+    $suffix = if ($DefaultYes) { "[Y/n]" } else { "[y/N]" }
+    $answer = Read-Host "$Prompt $suffix"
+
+    if ([string]::IsNullOrWhiteSpace($answer)) {
+        return $DefaultYes
+    }
+
+    $normalized = $answer.Trim().ToLowerInvariant()
+    if ($normalized -in @('y', 'yes')) { return $true }
+    if ($normalized -in @('n', 'no')) { return $false }
+
+    return $DefaultYes
+}
+
 Write-Host ""
 Write-Host "  ____                                  " -ForegroundColor Magenta
 Write-Host " |  _ \ __ _  __ _ _   _ ___ ___ _   _  " -ForegroundColor Magenta
@@ -48,13 +78,20 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # Install frontend dependencies
-Set-Location frontend
-npm install
+npm install --prefix frontend
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to install frontend dependencies" -ForegroundColor Red
     exit 1
 }
-Set-Location ..
+
+if ($WithDiscord) {
+    Write-Host "Installing Discord bot dependencies..." -ForegroundColor Yellow
+    npm install --prefix discord-bot
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Failed to install Discord bot dependencies" -ForegroundColor Red
+        exit 1
+    }
+}
 
 Write-Host ""
 Write-Host "Creating default configuration..." -ForegroundColor Yellow
@@ -78,10 +115,43 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  Installation Complete!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
+
+if (-not $SkipSetup -and (Ask-YesNo -Prompt "Run interactive Ragussy setup now?" -DefaultYes $true)) {
+    npm run setup
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Setup wizard failed" -ForegroundColor Red
+        exit 1
+    }
+}
+
+if (-not $WithDiscord -and (Ask-YesNo -Prompt "Install optional Discord bot dependencies?" -DefaultYes $false)) {
+    $WithDiscord = $true
+    npm install --prefix discord-bot
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Failed to install Discord bot dependencies" -ForegroundColor Red
+        exit 1
+    }
+}
+
+if ($WithDiscord -and (Ask-YesNo -Prompt "Run interactive Discord bot setup now?" -DefaultYes $true)) {
+    npm run setup --prefix discord-bot
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Discord setup wizard failed" -ForegroundColor Red
+        exit 1
+    }
+}
+
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "1. Start Qdrant (in a separate terminal):" -ForegroundColor White
-Write-Host "   docker run -p 6333:6333 qdrant/qdrant" -ForegroundColor Gray
+
+if ($dockerVersion) {
+    Write-Host "1. Start services (recommended):" -ForegroundColor White
+    Write-Host "   docker compose up -d qdrant" -ForegroundColor Gray
+} else {
+    Write-Host "1. Start Qdrant (in a separate terminal):" -ForegroundColor White
+    Write-Host "   docker run -p 6333:6333 qdrant/qdrant" -ForegroundColor Gray
+}
+
 Write-Host ""
 Write-Host "2. Start Ragussy:" -ForegroundColor White
 Write-Host "   npm run dev:all" -ForegroundColor Gray
@@ -89,6 +159,10 @@ Write-Host ""
 Write-Host "3. Open your browser:" -ForegroundColor White
 Write-Host "   http://localhost:5173" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "The setup wizard will guide you through" -ForegroundColor White
-Write-Host "configuring API keys and settings." -ForegroundColor White
+
+if ($WithDiscord) {
+    Write-Host "4. Register Discord commands (optional):" -ForegroundColor White
+    Write-Host "   npm run register --prefix discord-bot" -ForegroundColor Gray
+    Write-Host ""
+}
 Write-Host ""

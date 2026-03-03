@@ -22,6 +22,8 @@ const envSchema = z.object({
   FORUM_MODE: z.string().default('true').transform(val => val === 'true'),
   BOT_PERSONALITY: z.string().default('casual'), // casual, formal, friendly
   MAX_IMAGES_PER_RESPONSE: z.coerce.number().default(4),
+  MAX_DOC_UPLOAD_MB: z.coerce.number().default(15),
+  INSTRUCTION_PARSE_TIMEOUT_MS: z.coerce.number().default(8000),
 
   // Rate limiting
   COOLDOWN_SECONDS: z.coerce.number().default(5),

@@ -2,6 +2,12 @@
 
 A self-hosted RAG (Retrieval-Augmented Generation) chatbot optimized for Markdown documentation and forum discussions. Point it at your markdown docs and get an AI-powered Q&A system with complete control over configuration, documents, and vector storage.
 
+Quick start in one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mojomast/ragussy/main/install.sh | bash
+```
+
 ![Ragussy Screenshot](docs/screenshots/chat.png)
 
 ## Features
@@ -18,14 +24,34 @@ A self-hosted RAG (Retrieval-Augmented Generation) chatbot optimized for Markdow
 
 ## Quick Start
 
-### One-Command Install
+### One-Line Install + Interactive Setup
+
+From a fresh machine:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mojomast/ragussy/main/install.sh | bash
+```
+
+With optional Discord bot setup in the same flow:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mojomast/ragussy/main/install.sh | bash -s -- --with-discord
+```
+
+Windows PowerShell:
+
+```powershell
+iwr https://raw.githubusercontent.com/mojomast/ragussy/main/install.ps1 -OutFile install.ps1; powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+### Local Install Script
 
 ```bash
 # Clone the repository
 git clone https://github.com/mojomast/ragussy.git
 cd ragussy
 
-# Run the install script
+# Run the install script (interactive by default)
 # Linux/Mac:
 ./install.sh
 
@@ -59,6 +85,8 @@ npm run dev:all
 ```
 
 Open http://localhost:5173 - the setup wizard will guide you through configuration.
+
+Tip: `install.sh` and `install.ps1` can now run setup directly and optionally configure `discord-bot` in the same install session.
 
 ## Screenshots
 
@@ -183,6 +211,8 @@ Authorization: Bearer YOUR_ADMIN_TOKEN
 ### Health Check
 
 ```bash
+GET /api/health/live
+GET /api/health/ready
 GET /api/health
 GET /api/health/detailed
 ```
@@ -201,6 +231,12 @@ docker compose logs -f ragussy
 
 # Stop
 docker compose down
+```
+
+For production, use the readiness endpoint in probes:
+
+```bash
+curl -sf http://localhost:3001/api/health/ready
 ```
 
 ## Discord Bot
@@ -238,9 +274,12 @@ docker compose --profile with-discord up -d
 | `/ask <question>` | Ask a question about the docs |
 | `/status` | Check bot health |
 | `/help` | Show help |
+| `/adddoc <file>` | Upload and convert a document into the knowledge base |
+| `/convertdoc <file> <instructions>` | Upload a document and apply instruction-driven conversion before ingest |
 | `!docs <question>` | Message command (customizable prefix) |
 
 See [discord-bot/README.md](discord-bot/README.md) for full documentation.
+See [Document Conversion Roadmap](docs/document-conversion-roadmap.md) for phased backend/frontend rollout.
 
 ## Project Structure
 
