@@ -98,7 +98,7 @@ Status: **complete**
 
 Status: **partially started**
 
-1. ⏳ Snapshot tests for deterministic conversion output (docx/html/pdf fixtures).
+1. 🔄 Snapshot tests for deterministic conversion output (md/html/txt + generated docx/pdf fixtures).
 2. 🔄 Queue-based background ingestion for larger files.
 3. ⏳ Metrics dashboard for conversion success/failure rates and latency by format.
 4. 🔄 Security pass:
@@ -120,3 +120,4 @@ Current implementation notes:
 - Background ingestion queue is available for async convert uploads (`convert-upload`/`convert-zip`) with job status endpoints:
   - `GET /api/documents/ingestion-jobs`
   - `GET /api/documents/ingestion-jobs/:id`
+- Root snapshot tests cover deterministic conversion behavior in `src/services/document-conversion.snapshot.test.ts`.

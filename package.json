@@ -17,7 +17,8 @@
     "ingest:forum": "tsx src/cli/ingest-forum.ts",
     "install:all": "npm install && cd frontend && npm install",
     "lint": "eslint src --ext .ts",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "node --test --import tsx src/**/*.test.ts"
   },
   "dependencies": {
     "@langchain/openai": "^0.3.0",
@@ -55,6 +56,7 @@
     "@types/turndown": "^5.0.6",
     "concurrently": "^8.2.2",
     "eslint": "^9.16.0",
+    "pdf-lib": "^1.17.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0"
   },

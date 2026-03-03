@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import { execFile } from 'node:child_process';
 import mammoth from 'mammoth';
-import pdfParse from 'pdf-parse';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import TurndownService from 'turndown';
 import { env, logger } from '../config/index.js';
 import {
