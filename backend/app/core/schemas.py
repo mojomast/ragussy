@@ -137,3 +137,27 @@ class LoungePostRequest(BaseModel):
 
 class LoungeListResponse(BaseModel):
     messages: list[LoungeMessage]
+
+
+class FrontendConfigResponse(BaseModel):
+    ragussy_admin_url: str
+    ragussy_base_url: str
+    ragussy_enabled: bool
+
+
+class RagussyChatRequest(BaseModel):
+    message: str
+    conversation_id: str | None = None
+
+
+class RagussyChatResponse(BaseModel):
+    answer: str
+    conversation_id: str | None = None
+
+
+class RagussyHealthResponse(BaseModel):
+    reachable: bool
+    configured: bool
+    base_url: str
+    status_code: int | None = None
+    details: dict[str, Any] | None = None

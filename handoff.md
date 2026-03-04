@@ -1,127 +1,241 @@
-# LLM Model Lab - Handoff Notes
+# LLM Model Lab -> Ragussy Unified UI Handoff
 
-## Project Location
-- Root: `/home/mojo/llm-model-lab`
-- Backend: `/home/mojo/llm-model-lab/backend`
-- Frontend: `/home/mojo/llm-model-lab/frontend`
-- Models: `/home/mojo/models/qwen3.5-gguf`
-- Runs/logs: `/home/mojo/llm-model-lab/runs`
+## Repo + Runtime Context
+- LLM Model Lab repo: `/home/mojo/llm-model-lab`
+- Ragussy repo: `/home/mojo/ragussy`
+- Model Lab API: `:8000`
+- Model Lab UI: usually `:5173` (can vary)
+- Ragussy API: `:3001`
+- Ragussy UI: usually `:5174` (can vary)
+- Qdrant: `:6333`
 
-## What Has Been Accomplished
+## What Exists Now (Ground Truth)
 
-### Core app scaffold
-- FastAPI backend with process management for `llama-server`.
-- React + Vite + TypeScript + Tailwind frontend with:
-  - Chat Lab page
-  - Runs page
-  - Live stats panel
-  - Live backend console panel
+### Model Lab backend
+- OpenAI-compatible endpoints are implemented:
+  - `GET /v1/models`
+  - `POST /v1/chat/completions`
+  - `POST /v1/embeddings`
+- `POST /v1/embeddings` supports Ragussy hybrid request flag:
+  - request: `ragussy_return_sparse: true`
+  - response includes `sparse.indices` + `sparse.values`
+- Ragussy proxy routes exist:
+  - `GET /api/ragussy/health`
+  - `POST /api/ragussy/chat`
+  - `POST /api/ragussy/direct`
+- Frontend config route exists:
+  - `GET /api/config`
+- `api/config` now rewrites localhost URLs to request host/scheme for Tailscale/LAN.
 
-### llama-server integration
-- Backend controls start/stop/warmup/status/health.
-- Added Docker wrapper execution for host compatibility:
-  - Script: `/home/mojo/llm-model-lab/backend/scripts/llama_server_docker.sh`
-  - Uses NVIDIA CUDA container and host networking.
-- `flash-attn` and mlock/mmap arg compatibility fixed for current llama-server CLI.
+Key files:
+- `backend/app/api/openai.py`
+- `backend/app/api/ragussy.py`
+- `backend/app/api/config.py`
+- `backend/app/services/embeddings_service.py`
+- `backend/app/core/config.py`
 
-### Streaming + run logging
-- `/api/chat` enqueues runs and streams via websocket channels.
-- Run records saved in:
-  - JSONL per run
-  - SQLite index (`runs.db`)
-- Run export endpoint returns ZIP with metadata/events/jsonl.
+### Model Lab frontend
+- Current UI includes:
+  - Chat Lab
+  - Runs
+  - provider selector in chat (`Local llama.cpp`, `Ragussy RAG`, `Ragussy Direct`)
+  - Ragussy status indicator
+  - Ragussy Admin link
+- Current app shell and pages are still mostly original Lab UI, not full parity with Ragussy management UX.
 
-### Streaming reliability fixes
-- Frontend no longer reconnects websocket per run.
-- Added send timeout unlock and better run event handling.
-- `crypto.randomUUID()` compatibility fallback implemented.
-- Backend parser expanded for more SSE variants.
-- Non-stream fallback implemented when stream tokens are absent.
-- Reasoning output support added (`reasoning_content` handling).
+Key files:
+- `frontend/src/App.tsx`
+- `frontend/src/pages/ChatLabPage.tsx`
+- `frontend/src/lib/api.ts`
 
-### Multi-user improvements
-- Session-scoped inference streaming:
-  - Browser session gets persistent `session_id` in localStorage.
-  - `session_id` sent in chat metadata.
-  - Backend tags token/events and websocket filters by session.
-- Multi-user activity/resource stats added:
-  - active websocket clients
-  - active runs
-  - RAM available per user
-  - VRAM available per user (if NVML available)
+### Ragussy side
+- Hybrid retrieval implemented and working:
+  - retrieval modes: `dense`, `hybrid`, `hybrid_rerank`
+  - dense+sparse indexing and fusion
+  - retrieval debug endpoint
+  - retrieval stats endpoint
+- Direct chat mode exists (`/api/llm/chat`) and UI route exists.
+- Upload + auto-ingest + ingestion progress endpoints exist.
 
-### Shared collaboration chat (new)
-- Added collapsible shared lounge chat panel between main area and console.
-- Backend lounge endpoints:
-  - `GET /api/lounge/messages`
-  - `POST /api/lounge/messages`
-- Lounge messages also stream over websocket channel `lounge`.
+Key files:
+- `src/routes/chat.ts`
+- `src/routes/documents.ts`
+- `src/routes/settings.ts`
+- `src/services/qdrant.ts`
+- `frontend/src/pages/Chat.tsx`
+- `frontend/src/pages/Documents.tsx`
+- `frontend/src/pages/Settings.tsx`
 
-### UX features added
-- Tooltips on adjustable settings.
-- Runtime dirty indicator + restart shortcut.
-- Prompt history (localStorage) with load/save.
-- Custom presets (save/load/delete in localStorage).
-- Context usage gauge in top bar with used/total and percent.
-- Console vertical size slider persisted in localStorage.
-- Layout mode selector:
-  - `Default`
-  - `Chat Right`
-  - `Console Right`
-- Model dropdown severity indicators:
-  - 35B red
-  - 9B orange
-  - 4B yellow
-  - 2B and below green
+## Coverage Gap: What Model Lab UI Still Lacks
 
-## Key Files Changed Recently
-- Backend:
-  - `/home/mojo/llm-model-lab/backend/app/main.py`
-  - `/home/mojo/llm-model-lab/backend/app/core/schemas.py`
-  - `/home/mojo/llm-model-lab/backend/app/services/event_bus.py`
-  - `/home/mojo/llm-model-lab/backend/app/services/chat_service.py`
-  - `/home/mojo/llm-model-lab/backend/app/services/metrics.py`
-  - `/home/mojo/llm-model-lab/backend/app/services/lounge.py` (new)
-  - `/home/mojo/llm-model-lab/backend/app/api/lounge.py` (new)
-- Frontend:
-  - `/home/mojo/llm-model-lab/frontend/src/pages/ChatLabPage.tsx`
-  - `/home/mojo/llm-model-lab/frontend/src/components/SettingsPanel.tsx`
-  - `/home/mojo/llm-model-lab/frontend/src/components/ModelSelector.tsx`
-  - `/home/mojo/llm-model-lab/frontend/src/components/StatsPanel.tsx`
-  - `/home/mojo/llm-model-lab/frontend/src/components/ConsolePanel.tsx`
-  - `/home/mojo/llm-model-lab/frontend/src/components/LoungePanel.tsx` (new)
-  - `/home/mojo/llm-model-lab/frontend/src/lib/api.ts`
-  - `/home/mojo/llm-model-lab/frontend/src/lib/ws.ts`
-  - `/home/mojo/llm-model-lab/frontend/src/lib/types.ts`
+Model Lab UI does not yet expose most RAG management features that users currently get in Ragussy UI. Missing from Model Lab UX:
 
-## Runtime/Environment Notes
-- LAN URL used: `http://10.90.98.20:5173`
-- Tailscale IP seen previously: `100.121.93.91`
-- Docker is installed and used to launch GPU llama-server.
-- A sudoers rule was added for passwordless docker command execution by user `mojo`.
+1. Document management parity
+- list docs
+- multi-select indexing
+- delete docs
+- zip/multi-file upload with auto-ingest
+- ingestion status and live progress
 
-## Verified Status (at handoff time)
-- Backend compile succeeds: `python3 -m compileall /home/mojo/llm-model-lab/backend/app`
-- Frontend build succeeds: `npm run build` in `/home/mojo/llm-model-lab/frontend`
+2. Vector/RAG ops parity
+- collection stats and controls
+- retrieval debug compare panel (dense vs hybrid)
+- retrieval runtime metrics dashboard
 
-## Known Caveats / Technical Debt
-- `console-right` layout mode is implemented, but layout composition is still mode-based (not free drag/drop docking).
-- Websocket filtering is session-aware for `tokens/events`, while `console/stats/lounge` remain globally visible by design.
-- Server control is still shared; any user can start/stop unless role-based control is added.
+3. Settings parity
+- full Ragussy settings form in Model Lab shell (project, providers, RAG params, forum mode, security)
+- Model Lab<->Ragussy connection diagnostics panel
 
-## Recommended Next Steps for Next Agent
-1. Add admin/owner lock for server controls (start/stop/restart only for authorized session).
-2. Add users-online list in lounge (presence channel / heartbeat).
-3. Add per-session console filter option (global vs local only).
-4. Add true draggable docking/resizable split panes for Chat/Stats/Console/Lounge.
-5. Improve model dropdown styling for option colors across browsers (native select styling can vary).
-6. Add integration tests for websocket session filtering and lounge message broadcast.
-7. Update README with latest lounge/multi-user/layout features.
+4. Operational parity
+- admin actions (reindex / full reindex) from Model Lab
+- robust UX around long-running ingestion jobs (progress polling, retries, state visibility)
+
+5. Navigation parity
+- unified nav in Model Lab for all RAG pages (Chat, Docs, Vectors, Settings, Runs)
+
+## Requested Next Initiative (Priority)
+
+Build a **brand new massively improved Model Lab UI** that fully manages Ragussy from within Model Lab, with reactive design and better UX.
+
+### Hard requirements
+1. Keep a bottom-page link to open the **current/legacy UI** so users can switch back.
+2. New UI must work for LAN/Tailscale access (no localhost-only links).
+3. Include all RAG controls exposed in Ragussy interface (see parity matrix below).
+
+## Implementation Strategy (Recommended)
+
+### Option A (fastest, lowest risk): Model Lab as Super-UI over existing APIs
+- Keep Ragussy backend as system-of-record for RAG operations.
+- Add/expand Model Lab backend proxy endpoints for all needed Ragussy functions.
+- Build new React UI in Model Lab frontend that consumes Model Lab APIs only.
+- Benefit: no cross-origin headache, centralized auth/session patterns.
+
+### Option B (slower): direct browser calls to Ragussy from Model Lab
+- Not recommended due to CORS/auth complexity and host rewrites.
+
+Use Option A.
+
+## Parity Matrix (Must Reach 100%)
+
+### Chat + Retrieval
+- [ ] RAG chat
+- [ ] Direct LLM chat
+- [ ] Retrieval mode selector (dense/hybrid/hybrid_rerank)
+- [ ] Compare retrieval panel
+- [ ] Retrieval stats panel (avg/p95, mode counts)
+
+### Documents / Ingestion
+- [ ] Upload zip and multiple files
+- [ ] Auto-ingest toggle
+- [ ] Incremental ingest
+- [ ] Full reindex
+- [ ] Selective reindex (selected docs)
+- [ ] Live ingestion progress (session, percent, file/chunk)
+- [ ] Ingestion result summary + errors
+
+### Vector Store / RAG internals
+- [ ] Collection health and point counts
+- [ ] Search debug tool
+- [ ] Hybrid migration helper trigger + guidance
+
+### Settings / Admin
+- [ ] Provider settings (LLM + embeddings)
+- [ ] API keys/security settings
+- [ ] RAG chunking and retrieval knobs
+- [ ] Forum mode controls
+- [ ] Model Lab integration diagnostics
+
+### Cross-app UX
+- [ ] Unified top nav
+- [ ] Reactive layouts for desktop/tablet/mobile
+- [ ] Persistent user preferences
+- [ ] Bottom “Open Legacy UI” link
+
+## New UI Product Requirements
+
+### UX/Design
+- Replace current utilitarian layout with a modern operations console style.
+- Add intentional information hierarchy:
+  - global system status strip
+  - nav + context panel
+  - page-level action bars
+  - feedback surfaces for long-running tasks
+- Responsive behavior:
+  - desktop: split panels
+  - tablet: collapsible side panels
+  - mobile: stacked cards with sticky action bar
+
+### Reactivity
+- Polling + optimistic UI for ingestion/retrieval telemetry.
+- Abortable requests for long operations.
+- Progressive loading states and empty states.
+
+### Backward compatibility
+- Do not remove existing routes/pages initially.
+- Add feature flag or route namespace for new UI, e.g. `/next/*`.
+- Keep legacy entry point accessible and linked at page bottom.
+
+## Backend Work Needed in Model Lab (to complete parity)
+
+Add proxy endpoints in `backend/app/api/ragussy.py` (or split modules) for:
+- documents list/content/upload/delete
+- ingestion trigger + status + progress
+- vector debug/search
+- settings get/update/test
+- chat stats/retrieval debug
+- admin reindex actions
+
+Rules:
+- Preserve current Ragussy API key usage via backend env (`RAGUSSY_API_KEY`).
+- Normalize response shapes for frontend consumption.
+- Ensure host rewrite logic for externally visible URLs.
+
+## Frontend Work Needed in Model Lab
+
+Create a new app shell and pages, suggested structure:
+- `frontend/src/pages-next/DashboardPage.tsx`
+- `frontend/src/pages-next/ChatPage.tsx`
+- `frontend/src/pages-next/DocumentsPage.tsx`
+- `frontend/src/pages-next/VectorsPage.tsx`
+- `frontend/src/pages-next/SettingsPage.tsx`
+- `frontend/src/components-next/*`
+- `frontend/src/lib/nextApi.ts`
+
+Legacy fallback link requirement:
+- visible at bottom of every new page:
+  - text: `Prefer the previous interface? Open Legacy UI`
+  - points to legacy route/app.
+
+## Test + Validation Requirements
+
+### Automated
+- Add frontend unit tests for critical state flows (upload/ingest/progress/error).
+- Add backend tests for proxy route transforms and URL rewrite behavior.
+- Add integration smoke script for:
+  1) upload fixture docs
+  2) ingest
+  3) retrieval-debug
+  4) chat
+
+### Manual acceptance checklist
+- [ ] Tailscale URL access works for all links/buttons
+- [ ] All parity matrix items reachable from Model Lab only
+- [ ] No need to open Ragussy UI for normal ops
+- [ ] Legacy UI link works on every page
+
+## Known Runtime Notes
+- `Ragussy Admin` URL now host-aware; still verify with hard refresh after deploy.
+- First BGE-M3 run may warm/download and be slower.
+- Ensure Ragussy frontend runs on externally reachable host/port when linked.
 
 ## Quick Resume Commands
-- Backend dev:
-  - `cd /home/mojo/llm-model-lab/backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
-- Frontend dev:
-  - `cd /home/mojo/llm-model-lab/frontend && npm run dev -- --host 0.0.0.0 --port 5173`
-- Combined helper:
-  - `cd /home/mojo/llm-model-lab && ./scripts/dev.sh`
+- Start stack helper: `/home/mojo/bootstrap-local-stack.sh start`
+- Ragussy health: `curl http://localhost:3001/api/health/detailed`
+- Model Lab config: `curl http://localhost:8000/api/config`
+
+## Definition of Done for Next Agent
+1. New Model Lab UI ships with full RAG management parity matrix checked off.
+2. User can operate end-to-end (upload -> ingest -> debug retrieval -> chat -> tune settings) without opening Ragussy UI.
+3. Legacy UI link exists at page bottom and works.
+4. Tailscale/LAN host behavior is verified.
+5. README updated with screenshots + migration notes from legacy to new UI.

@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     metrics_interval_seconds: float = Field(default=1.0, alias="METRICS_INTERVAL_SECONDS")
     local_request_timeout_seconds: float = Field(default=1800.0, alias="LOCAL_REQUEST_TIMEOUT_SECONDS")
 
+    model_lab_openai_api_key: str | None = Field(default=None, alias="MODEL_LAB_OPENAI_API_KEY")
+    embed_mode: str = Field(default="local", alias="EMBED_MODE")
+    embed_model: str = Field(default="bge-m3", alias="EMBED_MODEL")
+    embed_dim: int = Field(default=1024, alias="EMBED_DIM")
+
+    ragussy_admin_url: str = Field(default="http://localhost:5173", alias="RAGUSSY_ADMIN_URL")
+    ragussy_base_url: str = Field(default="http://localhost:3001", alias="RAGUSSY_BASE_URL")
+    ragussy_api_key: str | None = Field(default=None, alias="RAGUSSY_API_KEY")
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

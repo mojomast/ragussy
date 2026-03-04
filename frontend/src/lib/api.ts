@@ -1,6 +1,7 @@
 import type {
   ChatRequest,
   ChatStartResponse,
+  FrontendConfig,
   LoungeMessage,
   ModelInfo,
   RunDetail,
@@ -88,5 +89,33 @@ export async function postLoungeMessage(payload: {
   return request<{ ok: boolean; message: LoungeMessage }>("/api/lounge/messages", {
     method: "POST",
     body: JSON.stringify(payload)
+  });
+}
+
+export async function getFrontendConfig(): Promise<FrontendConfig> {
+  return request<FrontendConfig>("/api/config");
+}
+
+export async function ragussyHealth(): Promise<{
+  reachable: boolean;
+  configured: boolean;
+  base_url: string;
+  status_code?: number;
+}> {
+  return request("/api/ragussy/health");
+}
+
+export async function ragussyChat(payload: {
+  message: string;
+  conversation_id?: string;
+  direct?: boolean;
+}): Promise<{ answer: string; conversation_id?: string }> {
+  const endpoint = payload.direct ? "/api/ragussy/direct" : "/api/ragussy/chat";
+  return request(endpoint, {
+    method: "POST",
+    body: JSON.stringify({
+      message: payload.message,
+      conversation_id: payload.conversation_id
+    })
   });
 }

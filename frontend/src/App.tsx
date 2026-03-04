@@ -1,8 +1,34 @@
+import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { getFrontendConfig } from "./lib/api";
 import ChatLabPage from "./pages/ChatLabPage";
 import RunsPage from "./pages/RunsPage";
 
+function resolveExternalUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+    if (!localHosts.has(parsed.hostname)) {
+      return rawUrl;
+    }
+    const next = new URL(rawUrl);
+    next.hostname = window.location.hostname;
+    next.protocol = window.location.protocol;
+    return next.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 function App() {
+  const [ragussyAdminUrl, setRagussyAdminUrl] = useState<string>("");
+
+  useEffect(() => {
+    getFrontendConfig()
+      .then((cfg) => setRagussyAdminUrl(resolveExternalUrl(cfg.ragussy_admin_url)))
+      .catch(() => setRagussyAdminUrl(""));
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 text-slate-900">
       <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
@@ -29,6 +55,16 @@ function App() {
             >
               Runs
             </NavLink>
+            {ragussyAdminUrl ? (
+              <a
+                href={ragussyAdminUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-white"
+              >
+                Ragussy Admin
+              </a>
+            ) : null}
           </nav>
         </div>
       </header>

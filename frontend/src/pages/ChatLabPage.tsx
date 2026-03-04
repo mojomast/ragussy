@@ -7,16 +7,19 @@ import SettingsPanel, { QUICK_PRESETS } from "../components/SettingsPanel";
 import StatsPanel from "../components/StatsPanel";
 import {
   createChatRun,
+  getFrontendConfig,
   listLoungeMessages,
   listModels,
   postLoungeMessage,
+  ragussyChat,
+  ragussyHealth,
   serverHealth,
   serverStatus,
   startServer,
   stopServer,
   warmupServer
 } from "../lib/api";
-import type { ChatMessage, LoungeMessage, ModelInfo, SamplingSettings } from "../lib/types";
+import type { ChatMessage, ChatProvider, FrontendConfig, LoungeMessage, ModelInfo, SamplingSettings } from "../lib/types";
 import { connectStream } from "../lib/ws";
 
 const DEFAULT_SETTINGS: SamplingSettings = { ...QUICK_PRESETS.Balanced };
@@ -27,6 +30,7 @@ const SESSION_ID_KEY = "llm_lab_session_id";
 const LOUNGE_COLLAPSED_KEY = "llm_lab_lounge_collapsed";
 const LOUNGE_ALIAS_KEY = "llm_lab_lounge_alias";
 const LAYOUT_MODE_KEY = "llm_lab_layout_mode";
+const CHAT_PROVIDER_KEY = "llm_lab_chat_provider";
 
 type LayoutMode = "default" | "chat-right" | "console-right";
 
@@ -65,6 +69,22 @@ function parseExtraArgs(text: string): string[] {
     .filter(Boolean);
 }
 
+function resolveExternalUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+    if (!localHosts.has(parsed.hostname)) {
+      return rawUrl;
+    }
+    const next = new URL(rawUrl);
+    next.hostname = window.location.hostname;
+    next.protocol = window.location.protocol;
+    return next.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 function ChatLabPage() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedModelPath, setSelectedModelPath] = useState("");
@@ -92,6 +112,12 @@ function ChatLabPage() {
   const [loungeCollapsed, setLoungeCollapsed] = useState(false);
   const [loungeAlias, setLoungeAlias] = useState("");
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("default");
+  const [chatProvider, setChatProvider] = useState<ChatProvider>("local");
+  const [ragussyConversationId, setRagussyConversationId] = useState<string | null>(null);
+  const [ragussyDirectConversationId, setRagussyDirectConversationId] = useState<string | null>(null);
+  const [frontendConfig, setFrontendConfig] = useState<FrontendConfig | null>(null);
+  const [ragussyReachable, setRagussyReachable] = useState(false);
+  const [ragussyConfigured, setRagussyConfigured] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [stats, setStats] = useState<Record<string, unknown>>({});
   const [statsHistory, setStatsHistory] = useState<{
@@ -163,6 +189,10 @@ function ChatLabPage() {
       if (rawLayout === "default" || rawLayout === "chat-right" || rawLayout === "console-right") {
         setLayoutMode(rawLayout);
       }
+      const rawProvider = localStorage.getItem(CHAT_PROVIDER_KEY);
+      if (rawProvider === "local" || rawProvider === "ragussy-rag" || rawProvider === "ragussy-direct") {
+        setChatProvider(rawProvider);
+      }
     } catch {
       // ignore
     }
@@ -183,6 +213,45 @@ function ChatLabPage() {
   useEffect(() => {
     localStorage.setItem(LAYOUT_MODE_KEY, layoutMode);
   }, [layoutMode]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_PROVIDER_KEY, chatProvider);
+  }, [chatProvider]);
+
+  useEffect(() => {
+    void getFrontendConfig()
+      .then((cfg) => {
+        setFrontendConfig(cfg);
+        setRagussyConfigured(cfg.ragussy_enabled);
+      })
+      .catch(() => {
+        setFrontendConfig(null);
+        setRagussyConfigured(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const poll = async () => {
+      try {
+        const status = await ragussyHealth();
+        setRagussyReachable(Boolean(status.reachable));
+        setRagussyConfigured(Boolean(status.configured));
+      } catch {
+        setRagussyReachable(false);
+      }
+    };
+    void poll();
+    timer = window.setInterval(() => {
+      void poll();
+    }, 5000);
+
+    return () => {
+      if (timer !== null) {
+        window.clearInterval(timer);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -450,6 +519,24 @@ function ChatLabPage() {
     setIsSending(true);
 
     try {
+      if (chatProvider === "ragussy-rag" || chatProvider === "ragussy-direct") {
+        const direct = chatProvider === "ragussy-direct";
+        const response = await ragussyChat({
+          message: text,
+          conversation_id: direct ? (ragussyDirectConversationId ?? undefined) : (ragussyConversationId ?? undefined),
+          direct
+        });
+        if (direct) {
+          setRagussyDirectConversationId(response.conversation_id ?? null);
+        } else {
+          setRagussyConversationId(response.conversation_id ?? null);
+        }
+        setMessages((prev) => [...prev, { id: makeId(), role: "assistant", content: response.answer }]);
+        setIsSending(false);
+        setConsoleLines((prev) => [...prev.slice(-400), `[ragussy] ${direct ? "direct" : "rag"} response received`]);
+        return;
+      }
+
       const run = await createChatRun({
         model: selected?.name,
         system_prompt: systemPrompt,
@@ -482,6 +569,8 @@ function ChatLabPage() {
   function handleNewChat() {
     setMessages([]);
     setActiveRunId(null);
+    setRagussyConversationId(null);
+    setRagussyDirectConversationId(null);
     setIsSending(false);
     setConsoleLines((prev) => [...prev.slice(-400), "[chat] new chat started"]);
   }
@@ -600,6 +689,19 @@ function ChatLabPage() {
           </span>
           {runtimeDirty ? <button className="btn-ghost" onClick={handleServerStart}>Restart With New Runtime</button> : null}
           <div className="ml-auto flex items-center gap-2">
+            <span className="text-slate-500">Provider</span>
+            <select
+              className="input h-8 py-0 text-xs"
+              value={chatProvider}
+              onChange={(e) => setChatProvider(e.target.value as ChatProvider)}
+            >
+              <option value="local">Local llama.cpp</option>
+              <option value="ragussy-rag">Ragussy RAG</option>
+              <option value="ragussy-direct">Ragussy Direct</option>
+            </select>
+            <span className={ragussyReachable ? "text-emerald-700" : "text-amber-700"}>
+              Ragussy {ragussyReachable ? "online" : ragussyConfigured ? "offline" : "not configured"}
+            </span>
             <span className="text-slate-500">Layout</span>
             <select
               className="input h-8 py-0 text-xs"
@@ -656,6 +758,9 @@ function ChatLabPage() {
             <h2 className="panel-title">Transcript</h2>
             <button className="btn-ghost" onClick={handleNewChat}>New Chat</button>
           </div>
+          <p className="mb-2 text-xs text-slate-500">
+            Mode: {chatProvider === "local" ? "Local llama.cpp" : chatProvider === "ragussy-rag" ? "Ragussy RAG" : "Ragussy Direct"}
+          </p>
           <div className="min-h-72 flex-1 space-y-3 overflow-auto rounded-md bg-slate-50 p-3">
             {messages.length === 0 ? (
               <p className="text-sm text-slate-500">No conversation yet.</p>
@@ -673,9 +778,19 @@ function ChatLabPage() {
               ))
             )}
           </div>
-          <ChatComposer onSend={handleSend} isSending={isSending || !serverHealthy} />
-          {!serverRunning ? <p className="mt-2 text-xs text-amber-700">Server is stopped. Start it from the top bar.</p> : null}
-          {serverRunning && !serverHealthy ? <p className="mt-2 text-xs text-amber-700">Server is loading model... wait until healthy before sending.</p> : null}
+          <ChatComposer
+            onSend={handleSend}
+            isSending={isSending || (chatProvider === "local" ? !serverHealthy : !ragussyReachable)}
+          />
+          {chatProvider === "local" && !serverRunning ? <p className="mt-2 text-xs text-amber-700">Server is stopped. Start it from the top bar.</p> : null}
+          {chatProvider === "local" && serverRunning && !serverHealthy ? <p className="mt-2 text-xs text-amber-700">Server is loading model... wait until healthy before sending.</p> : null}
+          {chatProvider !== "local" && !ragussyConfigured ? <p className="mt-2 text-xs text-amber-700">Ragussy is not configured in backend env (set RAGUSSY_API_KEY).</p> : null}
+          {chatProvider !== "local" && ragussyConfigured && !ragussyReachable ? <p className="mt-2 text-xs text-amber-700">Ragussy is unreachable at configured base URL.</p> : null}
+          {frontendConfig?.ragussy_admin_url ? (
+            <a className="mt-2 inline-block text-xs text-teal-700 hover:underline" href={resolveExternalUrl(frontendConfig.ragussy_admin_url)} target="_blank" rel="noreferrer">
+              Open Ragussy Admin
+            </a>
+          ) : null}
         </section>
       </div>
 

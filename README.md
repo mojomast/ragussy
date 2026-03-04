@@ -41,9 +41,13 @@ Local web lab for testing and comparing `llama.cpp` GGUF models with a FastAPI b
 - `GET /api/server/health`
 - `POST /api/server/warmup`
 - `POST /api/chat`
+- `GET /api/config`
 - `GET /api/runs`
 - `GET /api/runs/{run_id}`
 - `GET /api/runs/{run_id}/export`
+- `GET /v1/models` (OpenAI-compatible, requires Bearer auth)
+- `POST /v1/chat/completions` (OpenAI-compatible, requires Bearer auth)
+- `POST /v1/embeddings` (OpenAI-compatible, requires Bearer auth)
 - `WS /ws/stream` channels: `tokens`, `stats`, `console`, `events`
 
 ## Environment
@@ -58,6 +62,143 @@ Important keys:
 - `DEFAULT_THREADS`
 - `DEFAULT_CTX`
 - `DEFAULT_GPU_LAYERS`
+- `MODEL_LAB_OPENAI_API_KEY`
+- `EMBED_MODE` (`local`)
+- `EMBED_MODEL` (`bge-m3`)
+- `EMBED_DIM` (`1024`)
+- `RAGUSSY_ADMIN_URL`
+
+## Full Local Stack (Model Lab + Ragussy)
+
+This setup runs fully local inference and embeddings through Model Lab, with Ragussy consuming Model Lab as an OpenAI-compatible provider.
+
+Flow:
+
+User -> Model Lab -> llama.cpp + BGE-M3 -> Ragussy
+
+### Ragussy control from Model Lab
+
+Model Lab now includes:
+
+- `Ragussy Admin` top-nav button (configured by `RAGUSSY_ADMIN_URL`)
+- Chat provider selector in Chat Lab:
+  - `Local llama.cpp`
+  - `Ragussy RAG`
+  - `Ragussy Direct`
+- Ragussy reachability status in the Chat Lab top row
+- Backend proxy endpoints:
+  - `GET /api/ragussy/health`
+  - `POST /api/ragussy/chat` (RAG)
+  - `POST /api/ragussy/direct` (Direct)
+
+To enable proxy mode, set in `backend/.env`:
+
+```env
+RAGUSSY_BASE_URL=http://localhost:3001
+RAGUSSY_API_KEY=<RAGUSSY_API_KEY>
+RAGUSSY_ADMIN_URL=http://localhost:5173
+```
+
+### 1) Start llama.cpp server (managed by Model Lab)
+
+Use the Model Lab UI or API to start your selected GGUF model.
+
+### 2) Start LLM Model Lab backend/frontend
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0 --port 5173
+```
+
+### 3) Start Qdrant
+
+```bash
+docker run -p 6333:6333 qdrant/qdrant
+```
+
+### 4) Start Ragussy
+
+Configure Ragussy `.env`:
+
+```env
+LLM_BASE_URL=http://localhost:8000/v1
+LLM_API_KEY=<MODEL_LAB_OPENAI_API_KEY>
+LLM_MODEL=local-model
+
+EMBED_BASE_URL=http://localhost:8000/v1
+EMBED_API_KEY=<MODEL_LAB_OPENAI_API_KEY>
+EMBED_MODEL=bge-m3
+VECTOR_DIM=1024
+```
+
+Then run Ragussy normally.
+
+## Embeddings vs llama.cpp
+
+`bge-m3` is not loaded into `llama.cpp` in this stack.
+
+- `llama.cpp` handles chat generation (GGUF model inference)
+- Model Lab embedding endpoint (`POST /v1/embeddings`) runs BGE-M3 through Python (`FlagEmbedding`)
+- Ragussy consumes both through Model Lab's OpenAI-compatible API
+
+In other words: embeddings are a separate service path, not a llama.cpp runtime feature in this integration.
+
+If you want llama.cpp-native embeddings in the future, use an embedding-capable GGUF model and add a dedicated `EMBED_MODE` path for llama.cpp embedding calls.
+
+## OpenAI Compatibility Verification
+
+### Check available model
+
+```bash
+curl -H "Authorization: Bearer <KEY>" \
+  http://localhost:8000/v1/models
+```
+
+### Test chat completion
+
+```bash
+curl -H "Authorization: Bearer <KEY>" \
+  -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/v1/chat/completions \
+  -d '{
+    "model": "local-model",
+    "messages": [{"role": "user", "content": "Say hello"}],
+    "stream": false
+  }'
+```
+
+### Test embeddings (BGE-M3, 1024 dim)
+
+```bash
+curl -H "Authorization: Bearer <KEY>" \
+  -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/v1/embeddings \
+  -d '{"model":"bge-m3","input":"hello world"}'
+```
+
+### Test hybrid embeddings (dense + sparse for Ragussy)
+
+```bash
+curl -H "Authorization: Bearer <KEY>" \
+  -H "Content-Type: application/json" \
+  -X POST http://localhost:8000/v1/embeddings \
+  -d '{"model":"bge-m3","input":"hello world","ragussy_return_sparse":true}'
+```
+
+Response includes each embedding item plus:
+
+- `sparse.indices` (int array)
+- `sparse.values` (float array)
 
 ## Local Development
 

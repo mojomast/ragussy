@@ -100,3 +100,11 @@ export interface LoungeMessage {
   alias: string;
   text: string;
 }
+
+export interface FrontendConfig {
+  ragussy_admin_url: string;
+  ragussy_base_url: string;
+  ragussy_enabled: boolean;
+}
+
+export type ChatProvider = "local" | "ragussy-rag" | "ragussy-direct";

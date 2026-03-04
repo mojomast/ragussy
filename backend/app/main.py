@@ -6,14 +6,18 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.chat import router as chat_router
+from app.api.config import router as config_router
 from app.api.lounge import router as lounge_router
 from app.api.models import router as models_router
+from app.api.openai import router as openai_router
 from app.api.runs import router as runs_router
+from app.api.ragussy import router as ragussy_router
 from app.api.server import router as server_router
 from app.core.config import get_settings
 from app.services.chat_service import ChatService
 from app.services.event_bus import CHANNELS, EventBus
 from app.services.llama_manager import LlamaServerManager
+from app.services.embeddings_service import EmbeddingsService
 from app.services.metrics import MetricsSampler
 from app.services.model_discovery import ModelDiscoveryService
 from app.services.lounge import LoungeService
@@ -29,6 +33,7 @@ async def lifespan(app: FastAPI):
     run_store = RunStore(settings.runs_dir, settings.runs_db_path)
     metrics_sampler = MetricsSampler(settings, event_bus, llama_manager)
     lounge_service = LoungeService()
+    embeddings_service = EmbeddingsService(settings)
     chat_service = ChatService(settings, event_bus, llama_manager, run_store, metrics_sampler)
     metrics_sampler.set_activity_providers(
         active_clients_provider=event_bus.active_subscriber_count,
@@ -43,6 +48,7 @@ async def lifespan(app: FastAPI):
     app.state.metrics_sampler = metrics_sampler
     app.state.chat_service = chat_service
     app.state.lounge_service = lounge_service
+    app.state.embeddings_service = embeddings_service
 
     await metrics_sampler.start()
     yield
@@ -63,6 +69,9 @@ app.include_router(server_router)
 app.include_router(chat_router)
 app.include_router(runs_router)
 app.include_router(lounge_router)
+app.include_router(config_router)
+app.include_router(ragussy_router)
+app.include_router(openai_router)
 
 
 @app.get("/health")
