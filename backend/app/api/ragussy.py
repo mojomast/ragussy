@@ -90,3 +90,49 @@ async def _proxy_chat(request: Request, body: RagussyChatRequest, direct: bool) 
         answer=str(data.get("answer", "")),
         conversation_id=data.get("conversationId"),
     )
+
+
+from fastapi.responses import StreamingResponse
+
+@router.api_route("/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+async def ragussy_proxy(path: str, request: Request):
+    settings = request.app.state.settings
+    if not settings.ragussy_api_key:
+        raise HTTPException(status_code=503, detail="RAGUSSY_API_KEY is not configured")
+
+    target_url = f"{settings.ragussy_base_url}/api/{path}"
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers["x-api-key"] = settings.ragussy_api_key
+    
+    # Ensure content-length is dropped if it's chunked, otherwise httpx complains.
+    # Actually, httpx is fine with content=request.stream()
+
+    timeout = httpx.Timeout(60.0)
+    client = httpx.AsyncClient(timeout=timeout)
+    
+    req = client.build_request(
+        request.method,
+        target_url,
+        headers=headers,
+        params=request.query_params,
+        content=request.stream()
+    )
+    
+    try:
+        resp = await client.send(req, stream=True)
+        
+        # Function to ensure we close the client after streaming
+        async def stream_wrapper():
+            async for chunk in resp.aiter_raw():
+                yield chunk
+            await client.aclose()
+            
+        return StreamingResponse(
+            stream_wrapper(),
+            status_code=resp.status_code,
+            headers={k: v for k, v in resp.headers.items() if k.lower() not in ("transfer-encoding", "content-encoding", "content-length")}
+        )
+    except httpx.RequestError as exc:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Proxy request failed: {exc}")

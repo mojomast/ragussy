@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { getFrontendConfig } from "./lib/api";
 import ChatLabPage from "./pages/ChatLabPage";
 import RunsPage from "./pages/RunsPage";
+import NextRoot from "./pages-next/NextRoot";
 
 function resolveExternalUrl(rawUrl: string): string {
   try {
@@ -30,16 +31,16 @@ function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 text-slate-900">
-      <header className="border-b border-slate-200 bg-white/85 backdrop-blur">
+    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 backdrop-blur">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between px-4 py-3">
           <h1 className="text-lg font-semibold">LLM Model Lab</h1>
-          <nav className="flex gap-2 rounded-lg bg-slate-100 p-1">
+          <nav className="flex gap-2 rounded-lg bg-slate-100 dark:bg-slate-800 p-1">
             <NavLink
               to="/"
               className={({ isActive }) =>
                 `rounded-md px-3 py-1.5 text-sm ${
-                  isActive ? "bg-white text-slate-900 shadow" : "text-slate-600"
+                  isActive ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow" : "text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-700/50"
                 }`
               }
             >
@@ -49,18 +50,28 @@ function App() {
               to="/runs"
               className={({ isActive }) =>
                 `rounded-md px-3 py-1.5 text-sm ${
-                  isActive ? "bg-white text-slate-900 shadow" : "text-slate-600"
+                  isActive ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow" : "text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-700/50"
                 }`
               }
             >
               Runs
+            </NavLink>
+            <NavLink
+              to="/next/dashboard"
+              className={({ isActive }) =>
+                `rounded-md px-3 py-1.5 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 ${
+                  isActive ? "bg-white dark:bg-slate-700 shadow" : ""
+                }`
+              }
+            >
+              Next UI ✨
             </NavLink>
             {ragussyAdminUrl ? (
               <a
                 href={ragussyAdminUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-white"
+                className="rounded-md px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700/50"
               >
                 Ragussy Admin
               </a>
@@ -73,6 +84,7 @@ function App() {
         <Routes>
           <Route path="/" element={<ChatLabPage />} />
           <Route path="/runs" element={<RunsPage />} />
+          <Route path="/next/*" element={<NextRoot />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

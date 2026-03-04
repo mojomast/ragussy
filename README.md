@@ -76,6 +76,29 @@ Flow:
 
 User -> Model Lab -> llama.cpp + BGE-M3 -> Ragussy
 
+### Next UI (Operations Console)
+
+Model Lab now includes a rebuilt `/next/*` operations UI for Ragussy management with a dark-first layout.
+
+Key capabilities:
+
+- Dashboard with live system telemetry (CPU, RAM, GPU, network), ingestion state, and retrieval/runtime diagnostics
+- Documents management with multi-database profiles:
+  - create/switch/rename/delete profiles
+  - per-database forum mode toggle
+  - per-database local docs link mode for in-app source rendering
+  - upload files/zip archives and auto-ingest
+- Ingestion progress and history:
+  - chunk counters, percent complete, throughput, ETA
+  - resumable forum checkpoint detection and restart controls
+  - per-database ingestion history table
+- Chat page with retrieval controls and compare mode, plus local source-document viewer links
+
+Notes:
+
+- "Heap Pressure" on the dashboard means `heapUsed / heapTotal` for the Node.js/V8 heap (not full process RSS).
+- Source references can be routed to local docs viewer pages when local docs mode is enabled for a database profile.
+
 ### Ragussy control from Model Lab
 
 Model Lab now includes:

@@ -30,6 +30,9 @@ class MetricsSampler:
         self._nvml_ready = False
         self._active_clients_provider = lambda: 0
         self._active_runs_provider = lambda: 0
+        self._last_network_ts: float | None = None
+        self._last_network_rx_bytes: int | None = None
+        self._last_network_tx_bytes: int | None = None
 
     def set_activity_providers(self, active_clients_provider, active_runs_provider) -> None:
         self._active_clients_provider = active_clients_provider
@@ -72,6 +75,7 @@ class MetricsSampler:
     def _collect_snapshot(self) -> dict[str, Any]:
         now = datetime.now(UTC).isoformat()
         vm = psutil.virtual_memory()
+        net = psutil.net_io_counters()
         stats: dict[str, Any] = {
             "timestamp": now,
             "cpu_percent": psutil.cpu_percent(interval=None),
@@ -79,7 +83,28 @@ class MetricsSampler:
             "memory_used_bytes": vm.used,
             "memory_total_bytes": vm.total,
             "memory_available_bytes": vm.available,
+            "network": {
+                "bytes_sent_total": int(net.bytes_sent),
+                "bytes_recv_total": int(net.bytes_recv),
+            },
         }
+
+        now_monotonic = asyncio.get_running_loop().time()
+        if (
+            self._last_network_ts is not None
+            and self._last_network_rx_bytes is not None
+            and self._last_network_tx_bytes is not None
+        ):
+            elapsed = max(0.001, now_monotonic - self._last_network_ts)
+            rx_bps = max(0, int((int(net.bytes_recv) - self._last_network_rx_bytes) / elapsed))
+            tx_bps = max(0, int((int(net.bytes_sent) - self._last_network_tx_bytes) / elapsed))
+            stats["network"]["rx_bytes_per_sec"] = rx_bps
+            stats["network"]["tx_bytes_per_sec"] = tx_bps
+            stats["network"]["total_bytes_per_sec"] = rx_bps + tx_bps
+
+        self._last_network_ts = now_monotonic
+        self._last_network_rx_bytes = int(net.bytes_recv)
+        self._last_network_tx_bytes = int(net.bytes_sent)
 
         active_clients = max(1, int(self._active_clients_provider() or 1))
         active_runs = int(self._active_runs_provider() or 0)
