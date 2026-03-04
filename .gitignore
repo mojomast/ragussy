@@ -7,3 +7,7 @@ dist/
 runs/*.db-shm
 runs/*.db-wal
 frontend/.vite/
+frontend/tsconfig.tsbuildinfo
+backend.log
+frontend.log
+runs/
