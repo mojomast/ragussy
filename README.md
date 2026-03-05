@@ -8,6 +8,7 @@ Ragussy and LLM Model Lab are now treated as one platform: a local-first RAG + i
 - React/Vite frontend with classic lab pages and `/next/*` Ragussy operations console
 - Ragussy bridge/proxy endpoints for RAG and direct chat routing
 - Multi-database document management, ingestion progress, restart/resume controls, and history
+- Optional Discord bot for chat and status commands in servers
 - Local deployment path for new environments (models, runs, env config, build steps)
 
 ## Core capabilities
@@ -35,6 +36,7 @@ Notes:
 - `models/` local GGUF model files
 - `runs/` JSONL event logs and SQLite run index
 - `scripts/dev.sh` quick local dev launcher
+- `discord-bot/` optional Discord integration service
 - `docker-compose.yml` optional containerized stack
 
 ## Quick start (local)
@@ -65,6 +67,18 @@ Backend: `http://localhost:8000`
 
 - Qdrant for retrieval storage: `docker run -p 6333:6333 qdrant/qdrant`
 - Ragussy service running (if using proxy/provider switch modes)
+
+### 4) Optional Discord bot
+
+```bash
+cd discord-bot
+npm install
+cp .env.example .env
+npm run register
+npm run dev
+```
+
+By default, the bot targets Model Lab proxy mode at `http://localhost:8000/api/ragussy`.
 
 ## Environment configuration
 
@@ -149,6 +163,7 @@ Before deploy/start, verify:
 - Frontend production build: `cd frontend && npm run build`
 - Backend production run: `cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000`
 - Docker compose option: `docker compose up --build`
+- Docker compose with Discord bot: `docker compose --profile with-discord up --build`
 
 ## Troubleshooting
 

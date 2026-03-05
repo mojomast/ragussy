@@ -27,3 +27,13 @@ services:
       - "5173:80"
     depends_on:
       - backend
+
+  discord-bot:
+    build: ./discord-bot
+    container_name: ragussy-discord-bot
+    env_file:
+      - ./discord-bot/.env
+    depends_on:
+      - backend
+    profiles:
+      - with-discord
