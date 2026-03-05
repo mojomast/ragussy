@@ -45,6 +45,9 @@ export default function DocumentsPage() {
   const [ingestionHistory, setIngestionHistory] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const selectedDb = (dbInfo?.databases || []).find((db: any) => db.id === selectedDbId);
+  const selectedDbCanAccess = selectedDb ? selectedDb.canAccess !== false : true;
+
   const loadDocuments = async () => {
     try {
       const data = await fetchDocuments();
@@ -393,13 +396,13 @@ export default function DocumentsPage() {
               >
                 {(dbInfo?.databases || []).map((db: any) => (
                   <option key={db.id} value={db.id}>
-                    {db.name} ({db.qdrantCollection}){db.privateToSession ? ' [private]' : ''}
+                    {db.name} ({db.qdrantCollection}){db.privateToSession ? (db.canAccess === false ? ' [private: other session]' : ' [private]') : ''}
                   </option>
                 ))}
               </select>
               <button
                 onClick={handleActivateDatabase}
-                disabled={isIngesting || isSwitchingDb || !selectedDbId || selectedDbId === dbInfo?.activeDatabaseId}
+                disabled={isIngesting || isSwitchingDb || !selectedDbId || selectedDbId === dbInfo?.activeDatabaseId || !selectedDbCanAccess}
                 className="px-3 py-2 rounded bg-cyan-600 text-white hover:bg-cyan-500 disabled:opacity-50"
               >
                 {isSwitchingDb ? 'Switching...' : 'Switch'}
@@ -409,6 +412,7 @@ export default function DocumentsPage() {
               Docs path: {dbInfo?.activeRuntime?.docsPath || 'N/A'}
             </p>
             {isIngesting ? <p className="text-xs text-amber-300 mt-1">Database switching is disabled while ingestion is active.</p> : null}
+            {!selectedDbCanAccess ? <p className="text-xs text-rose-300 mt-1">This profile is private to another session. You can view it but cannot switch/edit it.</p> : null}
           </div>
           <div>
             <label className="text-xs text-slate-400">Create New Database</label>
@@ -478,21 +482,21 @@ export default function DocumentsPage() {
         <div className="flex gap-2">
           <button
             onClick={handleSaveDatabaseMeta}
-            disabled={isSavingDbMeta || !selectedDbId}
+            disabled={isSavingDbMeta || !selectedDbId || !selectedDbCanAccess}
             className="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50"
           >
             {isSavingDbMeta ? 'Saving...' : 'Save Profile'}
           </button>
           <button
             onClick={handleDeleteDatabase}
-            disabled={isDeletingDb || !selectedDbId || selectedDbId === dbInfo?.activeDatabaseId || isIngesting}
+            disabled={isDeletingDb || !selectedDbId || selectedDbId === dbInfo?.activeDatabaseId || isIngesting || !selectedDbCanAccess}
             className="px-3 py-2 rounded bg-rose-700 text-white hover:bg-rose-600 disabled:opacity-50"
           >
             {isDeletingDb ? 'Deleting...' : 'Delete Profile'}
           </button>
           <button
             onClick={handleMakeDatabasePrivate}
-            disabled={isPrivatizingDb || !selectedDbId}
+            disabled={isPrivatizingDb || !selectedDbId || !selectedDbCanAccess}
             className="px-3 py-2 rounded bg-amber-700 text-white hover:bg-amber-600 disabled:opacity-50"
           >
             {isPrivatizingDb ? 'Applying...' : 'Make Session-Private'}

@@ -159,6 +159,8 @@ export async function listDatabaseProfiles() {
       useLocalDocsBaseUrl: boolean;
       forumMode: boolean;
       privateToSession?: boolean;
+      ownerSessionId?: string | null;
+      canAccess?: boolean;
       createdAt: string;
     }>;
     activeRuntime: {

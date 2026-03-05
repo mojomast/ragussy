@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 .venv/
 .env
+backend/.env
+frontend/.env
+frontend/.env.local
 node_modules/
 dist/
 runs/*.db-shm
@@ -10,4 +13,6 @@ frontend/.vite/
 frontend/tsconfig.tsbuildinfo
 backend.log
 frontend.log
+*.log
+.DS_Store
 runs/
