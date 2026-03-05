@@ -3,54 +3,43 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color: #213547;
-  background-color: #f8fafc;
+  color: #0f172a;
+  background-color: #f1f5f9;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
 body {
   margin: 0;
-  min-height: 100vh;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+.panel {
+  @apply rounded-xl border border-slate-200 bg-white p-4 shadow-panel dark:border-slate-700 dark:bg-slate-900;
 }
 
-::-webkit-scrollbar-track {
-  background: #f1f5f9;
+.panel-title {
+  @apply text-sm font-semibold tracking-wide text-slate-700 uppercase dark:text-slate-200;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+.field-label {
+  @apply mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+.input {
+  @apply w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-accent focus:ring-2 focus:ring-teal-100 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-cyan-900;
 }
 
-/* Markdown styles */
-.prose pre {
-  background: #1e293b;
-  color: #e2e8f0;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  overflow-x: auto;
+.field-input {
+  @apply w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-900;
 }
 
-.prose code {
-  background: #f1f5f9;
-  padding: 0.125rem 0.25rem;
-  border-radius: 0.25rem;
-  font-size: 0.875em;
+.btn {
+  @apply inline-flex items-center justify-center rounded-md px-3 py-2 text-sm font-medium transition;
 }
 
-.prose pre code {
-  background: transparent;
-  padding: 0;
+.btn-primary {
+  @apply btn bg-teal-700 text-white hover:bg-teal-600;
+}
+
+.btn-ghost {
+  @apply btn border border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800;
 }

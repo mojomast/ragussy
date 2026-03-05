@@ -1,37 +1,18 @@
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-
-# Environment files
+__pycache__/
+*.pyc
+.venv/
 .env
-.env.local
-.env.*.local
-
-# Data files
-data/
-*.db
-
-# Logs
-logs/
+backend/.env
+frontend/.env
+frontend/.env.local
+node_modules/
+dist/
+runs/*.db-shm
+runs/*.db-wal
+frontend/.vite/
+frontend/tsconfig.tsbuildinfo
+backend.log
+frontend.log
 *.log
-npm-debug.log*
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
 .DS_Store
-Thumbs.db
-
-# Test coverage
-coverage/
-
-# Uploads
-uploads/
-
-docs/*.json
+runs/

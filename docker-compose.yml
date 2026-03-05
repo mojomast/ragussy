@@ -1,117 +1,29 @@
-# Ragussy Docker Compose Configuration
+version: "3.9"
 
 services:
-  # =====================
-  # Qdrant Vector Database
-  # =====================
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: ragussy-qdrant
-    restart: unless-stopped
-    volumes:
-      - qdrant_storage:/qdrant/storage
-    environment:
-      - QDRANT__SERVICE__GRPC_PORT=6334
-      - QDRANT__SERVICE__HTTP_PORT=6333
+  backend:
+    build: ./backend
+    container_name: llm-model-lab-backend
     ports:
-      - "6333:6333"
-    networks:
-      - ragussy-internal
-
-  # =====================
-  # Ragussy Backend API
-  # =====================
-  ragussy:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: ragussy-backend
-    restart: unless-stopped
-    env_file:
-      - .env
+      - "8000:8000"
     environment:
-      - NODE_ENV=production
-      - QDRANT_URL=http://qdrant:6333
+      MODELS_DIR: /workspace/models
+      RUNS_DIR: /workspace/runs
+      RUNS_DB_PATH: /workspace/runs/runs.db
+      LLAMA_SERVER_PATH: /workspace/llama.cpp/build/bin/llama-server
+      LLAMA_PORT: 8081
+      DEFAULT_THREADS: 8
+      DEFAULT_CTX: 4096
+      DEFAULT_GPU_LAYERS: 99
+    volumes:
+      - ./models:/workspace/models
+      - ./runs:/workspace/runs
+      - ./llama.cpp:/workspace/llama.cpp
+
+  frontend:
+    build: ./frontend
+    container_name: llm-model-lab-frontend
     ports:
-      - "3001:3001"
+      - "5173:80"
     depends_on:
-      - qdrant
-    networks:
-      - ragussy-internal
-    volumes:
-      # Mount docs for ingestion (read-write for uploads)
-      - ${DOCS_PATH:-./docs}:/app/docs
-      # Persist ingestion state
-      - ragussy_state:/app/data
-      # Persist .env for settings
-      - ./.env:/app/.env
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3001/api/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-
-  # =====================
-  # Redis (Optional - for caching)
-  # =====================
-  redis:
-    image: redis:7-alpine
-    container_name: ragussy-redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    networks:
-      - ragussy-internal
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    profiles:
-      - with-redis
-
-  # =====================
-  # Discord Bot (Optional)
-  # =====================
-  discord-bot:
-    build:
-      context: ./discord-bot
-      dockerfile: Dockerfile
-    container_name: ragussy-discord-bot
-    restart: unless-stopped
-    environment:
-      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
-      - DISCORD_GUILD_ID=${DISCORD_GUILD_ID:-}
-      - RAG_API_URL=http://ragussy:3001/api
-      - RAG_API_KEY=${API_KEY}
-      - BOT_NAME=${DISCORD_BOT_NAME:-Docs Bot}
-      - BOT_COMMAND_PREFIX=${DISCORD_COMMAND_PREFIX:-!docs}
-      - BOT_EMBED_COLOR=${DISCORD_EMBED_COLOR:-0x7c3aed}
-      - COOLDOWN_SECONDS=${DISCORD_COOLDOWN_SECONDS:-5}
-      - LOG_LEVEL=info
-    depends_on:
-      ragussy:
-        condition: service_healthy
-    networks:
-      - ragussy-internal
-    profiles:
-      - with-discord
-
-networks:
-  ragussy-internal:
-    driver: bridge
-
-volumes:
-  qdrant_storage:
-    driver: local
-  ragussy_state:
-    driver: local
-  redis_data:
-    driver: local
+      - backend

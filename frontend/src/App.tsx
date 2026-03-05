@@ -1,63 +1,95 @@
-import { useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import Layout from './components/Layout'
-import SetupWizard from './pages/SetupWizard'
-import Chat from './pages/Chat'
-import Documents from './pages/Documents'
-import VectorStore from './pages/VectorStore'
-import Settings from './pages/Settings'
-import { Toaster } from './components/Toast'
+import { useEffect, useState } from "react";
+import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import { getFrontendConfig } from "./lib/api";
+import ChatLabPage from "./pages/ChatLabPage";
+import RunsPage from "./pages/RunsPage";
+import NextRoot from "./pages-next/NextRoot";
 
-function App() {
-  const [isConfigured, setIsConfigured] = useState<boolean | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    checkSetupStatus()
-  }, [])
-
-  const checkSetupStatus = async () => {
-    try {
-      const res = await fetch('/api/settings/setup-status')
-      const data = await res.json()
-      setIsConfigured(data.isConfigured)
-    } catch {
-      setIsConfigured(false)
-    } finally {
-      setLoading(false)
+function resolveExternalUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+    if (!localHosts.has(parsed.hostname)) {
+      return rawUrl;
     }
+    const next = new URL(rawUrl);
+    next.hostname = window.location.hostname;
+    next.protocol = window.location.protocol;
+    return next.toString();
+  } catch {
+    return rawUrl;
   }
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    )
-  }
-
-  return (
-    <BrowserRouter>
-      <Toaster>
-        <Routes>
-          {!isConfigured ? (
-            <>
-              <Route path="/setup" element={<SetupWizard onComplete={() => setIsConfigured(true)} />} />
-              <Route path="*" element={<Navigate to="/setup" replace />} />
-            </>
-          ) : (
-            <Route element={<Layout />}>
-              <Route path="/" element={<Chat />} />
-              <Route path="/documents" element={<Documents />} />
-              <Route path="/vectors" element={<VectorStore />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          )}
-        </Routes>
-      </Toaster>
-    </BrowserRouter>
-  )
 }
 
-export default App
+function App() {
+  const [ragussyAdminUrl, setRagussyAdminUrl] = useState<string>("");
+
+  useEffect(() => {
+    getFrontendConfig()
+      .then((cfg) => setRagussyAdminUrl(resolveExternalUrl(cfg.ragussy_admin_url)))
+      .catch(() => setRagussyAdminUrl(""));
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-slate-100 via-slate-100 to-slate-200 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 text-slate-900 dark:text-slate-100 transition-colors duration-200">
+      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 backdrop-blur">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between px-4 py-3">
+          <h1 className="text-lg font-semibold">LLM Model Lab</h1>
+          <nav className="flex gap-2 rounded-lg bg-slate-100 dark:bg-slate-800 p-1">
+            <NavLink
+              to="/"
+              className={({ isActive }) =>
+                `rounded-md px-3 py-1.5 text-sm ${
+                  isActive ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow" : "text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-700/50"
+                }`
+              }
+            >
+              Chat Lab
+            </NavLink>
+            <NavLink
+              to="/runs"
+              className={({ isActive }) =>
+                `rounded-md px-3 py-1.5 text-sm ${
+                  isActive ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow" : "text-slate-600 dark:text-slate-300 hover:bg-white/50 dark:hover:bg-slate-700/50"
+                }`
+              }
+            >
+              Runs
+            </NavLink>
+            <NavLink
+              to="/next/dashboard"
+              className={({ isActive }) =>
+                `rounded-md px-3 py-1.5 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 ${
+                  isActive ? "bg-white dark:bg-slate-700 shadow" : ""
+                }`
+              }
+            >
+              Next UI ✨
+            </NavLink>
+            {ragussyAdminUrl ? (
+              <a
+                href={ragussyAdminUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md px-3 py-1.5 text-sm text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700/50"
+              >
+                Ragussy Admin
+              </a>
+            ) : null}
+          </nav>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-[1500px] p-4">
+        <Routes>
+          <Route path="/" element={<ChatLabPage />} />
+          <Route path="/runs" element={<RunsPage />} />
+          <Route path="/next/*" element={<NextRoot />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
+export default App;
