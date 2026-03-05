@@ -85,12 +85,14 @@ Key capabilities:
 - Dashboard with live system telemetry (CPU, RAM, GPU, network), ingestion state, and retrieval/runtime diagnostics
 - Documents management with multi-database profiles:
   - create/switch/rename/delete profiles
+  - optional session-private profiles (scoped to one browser session)
   - per-database forum mode toggle
   - per-database local docs link mode for in-app source rendering
   - upload files/zip archives and auto-ingest
 - Ingestion progress and history:
   - chunk counters, percent complete, throughput, ETA
   - resumable forum checkpoint detection and restart controls
+  - stale-run restart behavior (resume when possible, force-fresh when stalled)
   - per-database ingestion history table
 - Chat page with retrieval controls and compare mode, plus local source-document viewer links
 
@@ -98,6 +100,7 @@ Notes:
 
 - "Heap Pressure" on the dashboard means `heapUsed / heapTotal` for the Node.js/V8 heap (not full process RSS).
 - Source references can be routed to local docs viewer pages when local docs mode is enabled for a database profile.
+- Session-private database profiles are keyed by browser session ID and are intentionally hidden from other sessions.
 
 ### Ragussy control from Model Lab
 
@@ -246,6 +249,35 @@ npm run dev
 
 Frontend default: `http://localhost:5173`  
 Backend default: `http://localhost:8000`
+
+## Fresh Environment Bootstrap
+
+Use this when cloning into a new machine/VM before deployment.
+
+1. Clone repository and install backend deps:
+
+```bash
+git clone https://github.com/mojomast/ragussy.git
+cd ragussy/backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+2. Install frontend deps:
+
+```bash
+cd ../frontend
+npm install
+```
+
+3. Verify required services/config before launch:
+
+- `llama-server` available on host (`LLAMA_SERVER_PATH` or PATH)
+- `MODELS_DIR` points to GGUF files
+- Ragussy endpoint/API key values set in `backend/.env` when using proxy mode
+- Qdrant running if Ragussy retrieval is enabled
 
 ## LAN + Tailscale Access
 
